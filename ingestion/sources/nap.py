@@ -187,10 +187,35 @@ def parse_status(src) -> tuple[list[dict], str | None]:
         status = normalize_status(_text(st_el if st_el is not None else _desc(el, "status")))
         ts = _ts(_text(_child(el, "lastUpdated"))) or _ts(pub)
         if uid and status != "UNKNOWN":
-            rows.append({"site": site, "uid": uid, "status": status,
-                         "ts": ts.isoformat() if ts else None})
+            row = {"site": site, "uid": uid, "status": status, "ts": ts.isoformat() if ts else None}
+            precos = prices(el, _ts(pub) or datetime.now(timezone.utc))
+            if precos:
+                row["precos"] = precos
+            rows.append(row)
         el.clear(keep_tail=True)
     return rows, pub
+
+
+# ------------------------------------------------------------- preços do operador
+PRICE_POLICIES = {"flatRate": "sessao", "pricePerDeliveryUnit": "kwh", "pricePerChargingTime": "min"}
+
+
+def prices(el, at: datetime) -> dict | None:
+    """Preço do operador (OPC) em vigor no instante `at`: {"sessao": €, "kwh": €/kWh, "min": €/min}.
+    Vem em electricEnergyMixOverride (pricingPolicy + minimumDeliveryFee, com validade opcional)."""
+    out = {}
+    for mix in el:
+        if _ln(mix) != "electricEnergyMixOverride":
+            continue
+        key = PRICE_POLICIES.get(_text(_desc(mix, "pricingPolicy")) or "")
+        fee = _num(_text(_desc(mix, "minimumDeliveryFee")))
+        if key is None or fee is None or fee < 0:
+            continue
+        start, end = _ts(_text(_desc(mix, "overallStartTime"))), _ts(_text(_desc(mix, "overallEndTime")))
+        if (start and start > at) or (end and end <= at):
+            continue
+        out[key] = round(fee, 5)
+    return out or None
 
 
 # ------------------------------------------------------------- descarga
