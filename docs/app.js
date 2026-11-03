@@ -236,7 +236,8 @@
     const cls = estadoClasse(p.estado);
     const tom = (p.tomadas || []).map((t) => `<div class="tomada">
         <div><div class="t1">${esc(t.tomada)} · ${num(t.kw_real || t.kw)} kW ${esc(t.tipo)}</div>
-             <div class="t2">${esc(t.evse)}${t.desde ? " · mudou " + haQuanto(t.desde) : ""}</div></div>
+             <div class="t2">${esc(t.evse)}${t.desde ? " · mudou " + haQuanto(t.desde) : ""}</div>
+             ${t.nap ? `<div class="t2">Operador: ${precoTexto(t.nap)} (sem IVA)</div>` : ""}</div>
         <span class="pill ${estadoClasse(t.estado)}">${esc(estadoTexto(t.estado))}</span></div>`).join("");
     const meus = p.os_meus && p.os_meus.n ? `<p class="nota">Já carregaste aqui ${p.os_meus.n}× · em média ${eur(p.os_meus.custo_medio)} · última ${dataCurta(p.os_meus.ultimo)}</p>` : "";
     const alerta = p.alerta && !p.alerta.disparado
@@ -252,13 +253,20 @@
       <div class="acoes">
         ${alerta}
         <a class="btn" href="${navegar}" target="_blank" rel="noopener">🧭 Ir para lá</a>
-        ${p.com_grelha ? `<button class="btn" data-acao="calcular">💶 Quanto custa</button>` : `<button class="btn" disabled title="Sem preço conhecido">💶 Sem preço</button>`}
+        ${p.com_grelha || p.tem_preco || (p.tomadas || []).some((t) => t.nap) ? `<button class="btn" data-acao="calcular">💶 Quanto custa</button>` : `<button class="btn" disabled title="O operador não publica preço">💶 Sem preço</button>`}
         <button class="btn full danger" data-acao="denunciar">🚫 Lugar ocupado por quem não carrega</button>
       </div>
       <div id="s-extra"></div>
       <h3 class="sec2" style="margin-top:18px">Costuma estar ocupado?</h3>
       ${grelhaOcupacao(p.ocupacao)}`;
     $("#sheet-body").dataset.id = p.id;
+  }
+  function precoTexto(n) {
+    const partes = [];
+    if (+n.sessao) partes.push(nf(2).format(n.sessao) + " €/sessão");
+    if (+n.kwh) partes.push(nf(3).format(n.kwh) + " €/kWh");
+    if (+n.min) partes.push(nf(4).format(n.min) + " €/min");
+    return partes.join(" + ") || "grátis";
   }
   function grelhaOcupacao(oc) {
     if (!oc || !oc.length) return `<p class="nota">Ainda sem histórico neste posto (guarda-se num raio de 30 km do Montijo e nos teus postos; enche dia a dia).</p>`;
@@ -300,16 +308,20 @@
 
   // ------------------------------------------------------------------ calculadora
   let calc = store.get("calc", {}), grelha = null;
+  const PARES_EST = [[10, 80], [20, 80], [30, 80], [10, 100], [20, 100], [50, 100]];
   function abrirCalc() {
     const i = dados.inicio; if (!i) return;
     const sel = $("#c-posto");
-    const postos = i.postos_com_preco || [];
-    if (!postos.length) {
-      $("#c-res").innerHTML = `<div class="vazio-msg">Ainda não há grelha de custos. Corre o workflow "cost-grid" no GitHub.</div>`;
+    const comGrelha = i.postos_com_preco || [];
+    const lista = [...comGrelha.map((p) => ({ ...p, grelha: true })),
+                   ...(calc.recentes || []).filter((r) => !comGrelha.some((p) => p.id === r.id))];
+    if (!lista.length) {
+      $("#c-res").innerHTML = `<div class="vazio-msg">No Mapa, toca num posto e escolhe "Quanto custa".</div>`;
       return;
     }
-    sel.innerHTML = postos.map((p) => `<option value="${esc(p.id)}">${esc(p.posto)}</option>`).join("");
-    if (!postos.some((p) => p.id === calc.posto)) calc.posto = postos[0].id;
+    sel.innerHTML = (comGrelha.length ? `<optgroup label="Os meus postos">${comGrelha.map((p) => `<option value="${esc(p.id)}">${esc(p.posto)}</option>`).join("")}</optgroup>` : "") +
+      (lista.length > comGrelha.length ? `<optgroup label="Outros (vistos no mapa)">${lista.filter((p) => !p.grelha).map((p) => `<option value="${esc(p.id)}">${esc(p.posto)}</option>`).join("")}</optgroup>` : "");
+    if (!lista.some((p) => p.id === calc.posto)) calc.posto = lista[0].id;
     sel.value = calc.posto;
     $("#c-dia").innerHTML = DIAS_LONGOS.map((d, k) => `<option value="${k + 1}">${d[0].toUpperCase() + d.slice(1)}</option>`).join("");
     $("#c-hora").innerHTML = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, "0")}h</option>`).join("");
@@ -318,19 +330,53 @@
     $("#c-dia").value = calc.dia; $("#c-hora").value = calc.hora;
     carregarGrelha();
   }
+  let tarifaAtual = null;
   async function carregarGrelha() {
+    const temGrelha = (dados.inicio?.postos_com_preco || []).some((p) => p.id === calc.posto);
+    $("#c-tomadas-box").hidden = true;
     try {
-      grelha = await rpc("voltpt_custos", { p_posto: calc.posto, p_soc_inicio: calc.si ?? null, p_soc_alvo: calc.sa ?? null });
-      calc.si = grelha.soc_inicio; calc.sa = grelha.soc_alvo; store.set("calc", calc);
-      const pares = (grelha.pares || []).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+      if (temGrelha) {
+        grelha = await rpc("voltpt_custos", { p_posto: calc.posto, p_soc_inicio: calc.si ?? null, p_soc_alvo: calc.sa ?? null });
+        grelha.estimativa = null;
+        calc.si = grelha.soc_inicio; calc.sa = grelha.soc_alvo;
+      } else {
+        $("#c-res").innerHTML = `<p class="nota">A calcular…</p>`;
+        if (!tarifaAtual || tarifaAtual.id !== calc.posto) tarifaAtual = { id: calc.posto, ...(await rpc("voltpt_tarifa", { p_posto: calc.posto })) };
+        grelha = estimarPosto(tarifaAtual);
+      }
+      store.set("calc", calc);
+      const pares = (grelha.pares || []).slice().sort((a, b) => a[1] - b[1] || a[0] - b[0]);
       $("#c-socs").innerHTML = pares.map(([a, b]) =>
         `<button class="chip" data-soc="${a}-${b}" aria-pressed="${a === calc.si && b === calc.sa}">${a}→${b}%</button>`).join("");
       desenharCalc();
     } catch (e) { toast(e.message); }
   }
+  /** Grelha estimada no telemóvel (app/calc.js) para um posto sem grelha pré-calculada. */
+  function estimarPosto(t) {
+    const tomadas = (t.tomadas || []).filter((x) => x.manual || x.nap);
+    if (!tomadas.length || !t.carro) return { linhas: [], pares: [], estimativa: "sem_preco" };
+    // tomadas diferentes (tipo/potência) viram escolhas
+    const distintas = [];
+    for (const x of tomadas) if (!distintas.some((d) => d.tipo === x.tipo && +d.kw_util === +x.kw_util)) distintas.push(x);
+    if (calc.tomada == null || calc.tomada >= distintas.length) calc.tomada = 0;
+    if (distintas.length > 1) {
+      $("#c-tomadas").innerHTML = distintas.map((x, k) =>
+        `<button class="chip" data-tomada="${k}" aria-pressed="${k === calc.tomada}">${esc(x.tipo)} ${num(x.kw_util)} kW</button>`).join("");
+      $("#c-tomadas-box").hidden = false;
+    }
+    const tm = distintas[calc.tomada];
+    const manual = tm.manual, adhoc = manual && manual.party === "ADHOC";
+    const opc = manual || VoltCalc.tarifaNap(tm.nap);
+    if (!PARES_EST.some(([a, b]) => a === calc.si && b === calc.sa)) { calc.si = 20; calc.sa = 80; }
+    const carro = { ...t.carro, curva: t.carro.curva.map(([s, k]) => [+s, +k]),
+                    bateria_kwh: +t.carro.bateria_kwh, max_ac_kw: +t.carro.max_ac_kw, max_dc_kw: +t.carro.max_dc_kw, consumo: +t.carro.consumo };
+    const linhas = VoltCalc.semana({ carro, tomada: { tipo: tm.tipo, kw_util: +tm.kw_util }, opc,
+      regime: adhoc ? "ADHOC" : "MOBIE", ceme: t.ceme, taxas: t.taxas, si: calc.si, sa: calc.sa });
+    return { linhas, pares: PARES_EST, regime: adhoc ? "ADHOC" : "MOBIE", estimativa: manual ? "manual" : "nap", precoNap: tm.nap };
+  }
   function desenharCalc() {
     const linhas = grelha?.linhas || [];
-    if (!linhas.length) { $("#c-res").innerHTML = `<div class="vazio-msg">Sem custos para este posto.</div>`; $("#c-grelha").innerHTML = ""; $("#c-melhor").innerHTML = ""; return; }
+    if (!linhas.length) { $("#c-res").innerHTML = `<div class="vazio-msg">${grelha?.estimativa === "sem_preco" ? "Este posto não publica preço no NAP: não dá para estimar." : "Sem custos para este posto."}</div>`; $("#c-grelha").innerHTML = ""; $("#c-melhor").innerHTML = ""; return; }
     const por = new Map(linhas.map((l) => [l[0] * 100 + l[1], l]));
     const l = por.get(calc.dia * 100 + calc.hora);
     const custos = linhas.map((x) => x[2]), min = Math.min(...custos), max = Math.max(...custos);
@@ -368,7 +414,10 @@
       }
     }
     $("#c-grelha").innerHTML = html;
-    $("#c-nota").textContent = `Verde ${eur(min)} · vermelho ${eur(max)}. Calculado ${grelha.regime === "ADHOC" ? "com o preço único do posto" : "com a tarifa do operador + MyAtlante"}${dados.inicio?.grelha_em ? ", atualizado " + haQuanto(dados.inicio.grelha_em) : ""}.`;
+    const origem = grelha.estimativa === "nap" ? `Estimativa com o preço publicado pelo operador no NAP (${precoTexto(grelha.precoNap)}, sem IVA) + o teu contrato MyAtlante + taxas e IVA. Pode mudar se o operador alterar o preço.`
+      : grelha.estimativa === "manual" ? `Estimativa com a tarifa que registaste para este posto${grelha.regime === "ADHOC" ? " (preço único)" : " + MyAtlante"}.`
+      : `Calculado ${grelha.regime === "ADHOC" ? "com o preço único do posto" : "com a tarifa do operador + MyAtlante"}${dados.inicio?.grelha_em ? ", atualizado " + haQuanto(dados.inicio.grelha_em) : ""}.`;
+    $("#c-nota").textContent = `Verde ${eur(min)} · vermelho ${eur(max)}. ${origem}`;
   }
   function corEscala(f) {
     const cs = getComputedStyle(document.documentElement);
@@ -477,7 +526,12 @@
         $("#s-extra").innerHTML = `<p class="nota">Durante quanto tempo?</p><div class="escolha">
           ${[30, 60, 120, 240].map((m) => `<button class="btn" data-acao="avisar-${m}">${m < 60 ? m + " min" : m / 60 + " h"}</button>`).join("")}</div>`;
       } else if (ac.dataset.acao.startsWith("avisar-")) avisar(+ac.dataset.acao.slice(7));
-      else if (ac.dataset.acao === "calcular") { calc.posto = $("#sheet-body").dataset.id; calc.si = calc.sa = undefined; store.set("calc", calc); fecharPosto(); mostrar("calc"); }
+      else if (ac.dataset.acao === "calcular") {
+        const id = $("#sheet-body").dataset.id, nome = $("#s-nome")?.textContent || "Posto";
+        calc.posto = id; calc.si = calc.sa = undefined; calc.tomada = 0;
+        calc.recentes = [{ id, posto: nome }, ...(calc.recentes || []).filter((r) => r.id !== id)].slice(0, 6);
+        store.set("calc", calc); fecharPosto(); mostrar("calc");
+      }
       else if (ac.dataset.acao === "denunciar") {
         $("#s-extra").innerHTML = `<p class="nota">O que se passa?</p><div class="escolha">
           <button class="btn" data-acao="den-ICE_PARKED">Carro a combustão</button>
@@ -486,7 +540,11 @@
       } else if (ac.dataset.acao.startsWith("den-")) denunciar(ac.dataset.acao.slice(4));
     });
     // calculadora
-    $("#c-posto").addEventListener("change", (e) => { calc.posto = e.target.value; calc.si = calc.sa = undefined; carregarGrelha(); });
+    $("#c-posto").addEventListener("change", (e) => { calc.posto = e.target.value; calc.si = calc.sa = undefined; calc.tomada = 0; carregarGrelha(); });
+    $("#c-tomadas").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-tomada]"); if (!b) return;
+      calc.tomada = +b.dataset.tomada; carregarGrelha();
+    });
     $("#c-dia").addEventListener("change", (e) => { calc.dia = +e.target.value; store.set("calc", calc); desenharCalc(); });
     $("#c-hora").addEventListener("change", (e) => { calc.hora = +e.target.value; store.set("calc", calc); desenharCalc(); });
     $("#c-socs").addEventListener("click", (e) => {
