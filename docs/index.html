@@ -13,7 +13,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="app.css?v=4">
+<link rel="stylesheet" href="app.css?v=5">
 </head>
 <body>
 
@@ -74,6 +74,8 @@
     <section id="v-calc" class="view" hidden>
       <h2 class="sec">Quanto vai custar?</h2>
       <label class="campo">Posto<select id="c-posto"></select></label>
+      <p class="nota" style="margin-top:-6px">Para outro posto: no Mapa, toca nele e escolhe "Quanto custa".</p>
+      <div class="campo" id="c-tomadas-box" hidden><span>Tomada</span><div id="c-tomadas" class="chips-wrap" role="group" aria-label="Tomada"></div></div>
       <div class="campo"><span>Bateria</span><div id="c-socs" class="chips-wrap" role="group" aria-label="Bateria início e fim"></div></div>
       <div class="linha2">
         <label class="campo">Dia<select id="c-dia"></select></label>
@@ -158,8 +160,9 @@
   <div id="toast" class="toast" role="status" hidden></div>
 </div>
 
-<script src="config.js?v=4"></script>
+<script src="config.js?v=5"></script>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="app.js?v=4"></script>
+<script src="calc.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
