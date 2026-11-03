@@ -152,10 +152,12 @@
       const escuro = matchMedia("(prefers-color-scheme: dark)").matches;
       const centro = store.get("mapa", { lat: 38.706, lon: -8.962, z: 14 });
       mapa = L.map("map", { zoomControl: false, attributionControl: true }).setView([centro.lat, centro.lon], centro.z);
-      L.tileLayer(`https://{s}.basemaps.cartocdn.com/${escuro ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, {
-        maxZoom: 19, subdomains: "abcd",
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>',
+      // OpenStreetMap: gratuito, sem chave (uso pessoal, com atribuição). No modo escuro, a página escurece-o.
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       }).addTo(mapa);
+      document.getElementById("map").classList.toggle("escuro", escuro);
       camada = L.layerGroup().addTo(mapa);
       let t; mapa.on("moveend", () => {
         const c = mapa.getCenter(); store.set("mapa", { lat: c.lat, lon: c.lng, z: mapa.getZoom() });
