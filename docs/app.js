@@ -43,7 +43,7 @@
   let sessao = store.get("sessao", null);
 
   async function login(email, password) {
-    const r = await fetch(`${CFG.supabaseUrl}/auth/v1/token?grant_type=password`, {
+    const r = await fetch(`${CFG.supabaseUrl.replace(/\/+$/, "")}/auth/v1/token?grant_type=password`, {
       method: "POST", headers: { apikey: CFG.supabaseKey, "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
@@ -441,6 +441,15 @@
     return "voltpt-" + Array.from(a, (b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
   }
 
+  function mensagemLogin(m) {
+    if (/api key|apikey|jwt/i.test(m)) return "A chave pública no config.js está errada ou incompleta (" + m + ").";
+    if (/secret/i.test(m)) return "No config.js está a chave secreta: usa a Publishable key.";
+    if (/invalid login credentials/i.test(m)) return "E-mail ou password errados.";
+    if (/not confirmed/i.test(m)) return "Esta conta ainda não está confirmada no Supabase (Users → a conta → Confirm).";
+    if (/failed to fetch|networkerror|load failed/i.test(m)) return "Sem ligação ao Supabase: confirma o endereço no config.js e a internet.";
+    return m;
+  }
+
   // ------------------------------------------------------------------ eventos
   function ligarEventos() {
     $("#login-form").addEventListener("submit", async (ev) => {
@@ -450,7 +459,7 @@
         await login($("#login-email").value.trim(), $("#login-pass").value);
         await arrancar();
       } catch (e) {
-        $("#login-erro").textContent = /invalid/i.test(e.message) ? "E-mail ou password errados." : e.message;
+        $("#login-erro").textContent = mensagemLogin(e.message);
       } finally { btn.disabled = false; }
     });
     $$(".tabbar button").forEach((b) => b.addEventListener("click", () => { fecharPosto(); mostrar(b.dataset.v); }));
