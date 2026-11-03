@@ -130,7 +130,7 @@ main { padding: 0 16px calc(var(--tab-h) + var(--safe-b) + 18px); max-width: 640
 /* mapa */
 .map { position: absolute; inset: 0; bottom: calc(var(--tab-h) + var(--safe-b)); z-index: 1; background: var(--surface-2); }
 .map-chips { position: absolute; z-index: 600; top: calc(58px + var(--safe-t)); left: 12px; right: 12px; display: flex; gap: 8px;
-  overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+  overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; background: transparent; }
 .chip { flex: none; border: 1px solid var(--line); background: var(--surface); padding: 7px 13px; border-radius: 999px;
   font-size: 13.5px; font-weight: 650; box-shadow: var(--shadow); cursor: pointer; min-height: 36px; }
 .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
@@ -144,6 +144,8 @@ main { padding: 0 16px calc(var(--tab-h) + var(--safe-b) + 18px); max-width: 640
 .st { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .st-Livre { background: var(--livre); } .st-Ocupado { background: var(--ocupado); } .st-Avariado { background: var(--avariado); } .st-Sem { background: var(--sem); }
 .leaflet-container { font: inherit; background: var(--surface-2); }
+.map.escuro .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); }
+.map:not(.escuro) .leaflet-tile-pane { filter: saturate(.75); }
 .leaflet-control-attribution { font-size: 10px; }
 .leaflet-top { top: calc(100px + var(--safe-t)); }
 
