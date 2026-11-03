@@ -1,549 +1,213 @@
-/* VoltPT — página do telemóvel. Fala com o Supabase só por HTTPS (login + funções voltpt_*). */
-(function () {
-  "use strict";
-  const CFG = window.VOLTPT_CONFIG || {};
-  const $ = (s, el = document) => el.querySelector(s);
-  const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
-  const DIAS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
-  const DIAS_LONGOS = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"];
+:root {
+  --bg: #f4f6f5;
+  --surface: #ffffff;
+  --surface-2: #eef2f1;
+  --text: #13201d;
+  --muted: #5d6b67;
+  --line: #dde4e2;
+  --accent: #0f766e;
+  --accent-ink: #ffffff;
+  --accent-soft: #d5efea;
+  --livre: #16a34a;
+  --ocupado: #ea8a0c;
+  --avariado: #dc2626;
+  --sem: #9aa5a2;
+  --g0: #2f9e5b; --g1: #8cc04a; --g2: #e9c23b; --g3: #ee8a38; --g4: #d9483b;
+  --shadow: 0 1px 2px rgba(16,32,28,.06), 0 6px 18px rgba(16,32,28,.08);
+  --radius: 14px;
+  --tab-h: 62px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1513; --surface: #16201d; --surface-2: #1d2925; --text: #e7efec; --muted: #93a39e;
+    --line: #26332f; --accent: #2dd4bf; --accent-ink: #062320; --accent-soft: #123a35;
+    --livre: #22c55e; --ocupado: #f59e0b; --avariado: #f05252; --sem: #6b7a76;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 22px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1513; --surface: #16201d; --surface-2: #1d2925; --text: #e7efec; --muted: #93a39e;
+  --line: #26332f; --accent: #2dd4bf; --accent-ink: #062320; --accent-soft: #123a35;
+  --livre: #22c55e; --ocupado: #f59e0b; --avariado: #f05252; --sem: #6b7a76;
+  color-scheme: dark;
+}
 
-  // ------------------------------------------------------------------ armazenamento local
-  const store = {
-    get(k, d) { try { const v = localStorage.getItem("voltpt." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
-    set(k, v) { try { localStorage.setItem("voltpt." + k, JSON.stringify(v)); } catch { /* sem armazenamento */ } },
-    del(k) { try { localStorage.removeItem("voltpt." + k); } catch { /* idem */ } },
-  };
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+}
+[hidden] { display: none !important; }
+button, input, select { font: inherit; color: inherit; }
+.muted { color: var(--muted); font-weight: 400; }
+.erro { color: var(--avariado); min-height: 1.4em; margin: 8px 0 0; }
 
-  // ------------------------------------------------------------------ formatos
-  const nf = (d) => new Intl.NumberFormat("pt-PT", { minimumFractionDigits: d, maximumFractionDigits: d });
-  const eur = (v) => v == null ? "—" : nf(2).format(v) + " €";
-  const num = (v, d = 0) => v == null || isNaN(v) ? "—" : nf(d).format(v);
-  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  function haQuanto(iso) {
-    if (!iso) return "";
-    const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-    if (m < 1) return "agora";
-    if (m < 60) return `há ${m} min`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `há ${h} h`;
-    const d = Math.floor(h / 24);
-    return d === 1 ? "há 1 dia" : `há ${d} dias`;
-  }
-  const dataCurta = (iso) => new Date(iso).toLocaleDateString("pt-PT", { day: "2-digit", month: "short" });
-  const horaCurta = (iso) => new Date(iso).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
-  const duracao = (min) => min == null ? "—" : `${Math.floor(min / 60)}h${String(Math.round(min % 60)).padStart(2, "0")}`;
-  const estadoClasse = (e) => ["Livre", "Ocupado", "Avariado", "Reservado", "Bloqueado"].includes(e) ? e : "Sem";
-  const estadoTexto = (e) => e === "Sem dados" || !e ? "Sem dados" : e;
-  function toast(msg, ms = 2600) {
-    const t = $("#toast"); t.textContent = msg; t.hidden = false;
-    clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), ms);
-  }
+/* marca */
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 750; font-size: 28px; letter-spacing: -.02em; }
+.brand.small { font-size: 19px; }
+.bolt { width: .9em; height: .9em; background: var(--accent); border-radius: 30%;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M13 2 4 14h7l-1 8 9-12h-7z'/%3E%3C/svg%3E") center/contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M13 2 4 14h7l-1 8 9-12h-7z'/%3E%3C/svg%3E") center/contain no-repeat; }
 
-  // ------------------------------------------------------------------ Supabase (login + funções)
-  let sessao = store.get("sessao", null);
+/* login */
+.login { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; }
+.login-card { width: 100%; max-width: 380px; background: var(--surface); border-radius: 20px; padding: 28px 22px; box-shadow: var(--shadow); }
+.login-card form { display: grid; gap: 14px; margin-top: 18px; }
+label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+input, select {
+  width: 100%; min-height: 44px; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text); font-size: 16px; font-weight: 500;
+}
+input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-  async function login(email, password) {
-    const r = await fetch(`${CFG.supabaseUrl.replace(/\/+$/, "")}/auth/v1/token?grant_type=password`, {
-      method: "POST", headers: { apikey: CFG.supabaseKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error_description || j.msg || j.message || "Não foi possível entrar");
-    guardarSessao(j);
-  }
-  function guardarSessao(j) {
-    sessao = { access: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000, email: j.user?.email || sessao?.email };
-    store.set("sessao", sessao);
-  }
-  async function renovar() {
-    if (!sessao?.refresh) throw new Error("sem sessão");
-    const r = await fetch(`${CFG.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
-      method: "POST", headers: { apikey: CFG.supabaseKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: sessao.refresh }),
-    });
-    if (!r.ok) { sair(); throw new Error("A sessão expirou. Entra outra vez."); }
-    guardarSessao(await r.json());
-  }
-  async function rpc(fn, args = {}, tentou = false) {
-    if (!sessao) throw new Error("sem sessão");
-    if (Date.now() > sessao.exp - 60000) await renovar();
-    const r = await fetch(`${CFG.supabaseUrl}/rest/v1/rpc/${fn}`, {
-      method: "POST",
-      headers: { apikey: CFG.supabaseKey, Authorization: `Bearer ${sessao.access}`, "Content-Type": "application/json" },
-      body: JSON.stringify(args),
-    });
-    if (r.status === 401 && !tentou) { await renovar(); return rpc(fn, args, true); }
-    const j = await r.json().catch(() => null);
-    if (!r.ok) {
-      const msg = j?.message || `Erro ${r.status}`;
-      if (msg.includes("sem acesso")) throw new Error("Este e-mail não está autorizado (sql/06_app.sql).");
-      throw new Error(msg);
-    }
-    return j;
-  }
-  function sair() {
-    store.del("sessao"); sessao = null; dados = {};
-    $("#app").hidden = true; $("#login").hidden = false;
-  }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 16px;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-weight: 650; cursor: pointer;
+  text-decoration: none; color: var(--text); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { color: var(--avariado); }
+.btn:disabled { opacity: .55; }
 
-  // ------------------------------------------------------------------ estado da página
-  let dados = {};            // inicio, historico
-  let vista = store.get("vista", "inicio");
+/* estrutura */
+.app { min-height: 100%; }
+.topbar { position: sticky; top: 0; z-index: 500; display: flex; align-items: center; justify-content: space-between;
+  padding: calc(10px + var(--safe-t)) 16px 10px; background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.frescura { display: inline-flex; align-items: center; gap: 7px; border: 0; background: var(--surface); padding: 6px 11px;
+  border-radius: 999px; font-size: 12.5px; color: var(--muted); box-shadow: var(--shadow); cursor: pointer; }
+.frescura .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--livre); }
+.frescura.velho .dot { background: var(--ocupado); }
+main { padding: 0 16px calc(var(--tab-h) + var(--safe-b) + 18px); max-width: 640px; margin: 0 auto; }
+.view-mapa { position: fixed; inset: 0; padding: 0; max-width: none; }
 
-  function mostrar(v) {
-    vista = v; store.set("vista", v);
-    $$(".view").forEach((s) => (s.hidden = s.id !== "v-" + v));
-    $$(".tabbar button").forEach((b) => b.setAttribute("aria-current", b.dataset.v === v ? "page" : "false"));
-    document.body.classList.toggle("no-mapa", v !== "mapa");
-    if (v === "mapa") abrirMapa();
-    if (v === "calc") abrirCalc();
-    if (v === "hist") abrirHist();
-    if (v === "mais") abrirMais();
-    window.scrollTo(0, 0);
-  }
+.sec { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 18px 2px 10px; font-weight: 700; }
+.sec2 { font-size: 15px; margin: 22px 2px 10px; }
+.nota { font-size: 13px; color: var(--muted); margin: 10px 2px; }
+.creditos { font-size: 11.5px; color: var(--muted); margin-top: 24px; }
 
-  // ------------------------------------------------------------------ início
-  async function carregarInicio() {
-    dados.inicio = await rpc("voltpt_inicio");
-    desenharFrescura(); desenharInicio();
-  }
-  function desenharFrescura() {
-    const i = dados.inicio; if (!i) return;
-    const btn = $("#frescura");
-    const min = i.dados_em ? (Date.now() - new Date(i.dados_em).getTime()) / 60000 : 999;
-    btn.classList.toggle("velho", min > 25);
-    $("#frescura-txt").textContent = i.dados_em ? `estado ${haQuanto(i.dados_em)}` : "sem dados";
-  }
-  function cartaoPosto(p) {
-    const cls = estadoClasse(p.estado);
-    const livres = p.tomadas ? `${p.livres ?? 0}/${p.tomadas} livres` : "";
-    return `<button class="posto-card" data-posto="${esc(p.id)}">
-      <span class="nome">${esc(p.posto)}</span>
-      <span class="pill ${cls}">${esc(estadoTexto(p.estado))}</span>
-      <span class="sub">${esc(livres)}${p.kw ? ` · ${num(p.kw)} kW ${esc(p.tipo || "")}` : ""}${p.desde ? ` · mudou ${haQuanto(p.desde)}` : ""}</span>
-    </button>`;
-  }
-  function desenharInicio() {
-    const i = dados.inicio;
-    const mp = i.meus_postos || [];
-    $("#meus-postos").innerHTML = mp.length ? mp.map(cartaoPosto).join("")
-      : `<div class="vazio-msg">Ainda não há postos teus. Carrega as faturas para aparecerem aqui.</div>`;
-    const alertas = (i.alertas || []).filter((a) => !a.disparado && new Date(a.expira) > new Date());
-    $("#alertas-box").innerHTML = alertas.map((a) => `<div class="alerta"><span>🔔 À espera de <b>${esc(a.posto)}</b> até ${horaCurta(a.expira)}</span>
-      <button class="btn" data-cancelar="${esc(a.id)}">Cancelar</button></div>`).join("");
-    const m = i.mes || {};
-    $("#mes").innerHTML = kpi(eur(m.custo), "gasto") + kpi(num(m.kwh, 1) + " kWh", "carregados") +
-      kpi(num(m.carregamentos), "carregamentos") + kpi(m.kwh ? nf(3).format(m.custo / m.kwh) + " €" : "—", "por kWh");
-    const semEstado = mp.length && mp.every((p) => p.estado === "Sem dados");
-    $("#nota-estado").textContent = semEstado ? "Sem estado em tempo real: confirma que o workflow 'estado' está a correr." : "";
-  }
-  const kpi = (v, l, cls = "") => `<div class="kpi ${cls}"><div class="v">${v}</div><div class="l">${esc(l)}</div></div>`;
+/* tabbar */
+.tabbar { position: fixed; z-index: 900; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, 1fr);
+  height: calc(var(--tab-h) + var(--safe-b)); padding-bottom: var(--safe-b);
+  background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line); }
+.tabbar button { border: 0; background: none; display: grid; justify-items: center; align-content: center; gap: 3px;
+  font-size: 11px; font-weight: 650; color: var(--muted); cursor: pointer; }
+.tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.tabbar button[aria-current="page"] { color: var(--accent); }
 
-  // ------------------------------------------------------------------ mapa
-  let mapa, camada, filtros = store.get("filtros", {}), pedidoMapa = 0, ultimoMapa = [];
-  const COR = () => {
-    const cs = getComputedStyle(document.documentElement);
-    return { Livre: cs.getPropertyValue("--livre").trim(), Ocupado: cs.getPropertyValue("--ocupado").trim(),
-             Avariado: cs.getPropertyValue("--avariado").trim(), Sem: cs.getPropertyValue("--sem").trim(),
-             borda: cs.getPropertyValue("--surface").trim(), meu: cs.getPropertyValue("--text").trim() };
-  };
-  function abrirMapa() {
-    if (!mapa) {
-      const escuro = matchMedia("(prefers-color-scheme: dark)").matches;
-      const centro = store.get("mapa", { lat: 38.706, lon: -8.962, z: 14 });
-      mapa = L.map("map", { zoomControl: false, attributionControl: true }).setView([centro.lat, centro.lon], centro.z);
-      L.tileLayer(`https://{s}.basemaps.cartocdn.com/${escuro ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, {
-        maxZoom: 19, subdomains: "abcd",
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>',
-      }).addTo(mapa);
-      camada = L.layerGroup().addTo(mapa);
-      let t; mapa.on("moveend", () => {
-        const c = mapa.getCenter(); store.set("mapa", { lat: c.lat, lon: c.lng, z: mapa.getZoom() });
-        clearTimeout(t); t = setTimeout(carregarMapa, 350);
-      });
-      $$(".map-chips .chip").forEach((b) => {
-        b.setAttribute("aria-pressed", filtros[b.dataset.f] ? "true" : "false");
-        b.addEventListener("click", () => {
-          filtros[b.dataset.f] = !filtros[b.dataset.f];
-          if (b.dataset.f === "dc" && filtros.dc) filtros.ac = false;
-          if (b.dataset.f === "ac" && filtros.ac) filtros.dc = false;
-          store.set("filtros", filtros);
-          $$(".map-chips .chip").forEach((x) => x.setAttribute("aria-pressed", filtros[x.dataset.f] ? "true" : "false"));
-          desenharMapa();
-        });
-      });
-      $("#btn-gps").addEventListener("click", () => {
-        if (!navigator.geolocation) return toast("O browser não dá a localização.");
-        navigator.geolocation.getCurrentPosition(
-          (p) => { mapa.setView([p.coords.latitude, p.coords.longitude], 14); },
-          () => toast("Sem acesso à localização."), { enableHighAccuracy: true, timeout: 10000 });
-      });
-    }
-    setTimeout(() => { mapa.invalidateSize(); carregarMapa(); }, 50);
-  }
-  async function carregarMapa() {
-    if (!mapa || vista !== "mapa") return;
-    const aviso = $("#map-aviso");
-    if (mapa.getZoom() < 9) { camada.clearLayers(); aviso.textContent = "Aproxima o mapa para ver os postos"; aviso.hidden = false; return; }
-    const b = mapa.getBounds(), id = ++pedidoMapa;
-    try {
-      const r = await rpc("voltpt_postos", { p_min_lat: b.getSouth(), p_min_lon: b.getWest(), p_max_lat: b.getNorth(), p_max_lon: b.getEast() });
-      if (id !== pedidoMapa) return;
-      ultimoMapa = r.postos || [];
-      aviso.hidden = !r.demasiado_grande && ultimoMapa.length < 1500;
-      aviso.textContent = r.demasiado_grande ? "Aproxima o mapa para ver os postos" : "Há mais postos: aproxima para ver todos";
-      desenharMapa();
-    } catch (e) { toast(e.message); }
-  }
-  function desenharMapa() {
-    if (!camada) return;
-    camada.clearLayers();
-    const cor = COR();
-    // [id, nome, lat, lon, estado, livres, tomadas, kW, tipo, operador, tem_preco, meu]
-    const lista = ultimoMapa.filter((p) =>
-      (!filtros.livres || p[4] === "Livre") &&
-      (!filtros.dc || /DC/.test(p[8]) && p[7] >= 40) &&
-      (!filtros.ac || /AC/.test(p[8])) &&
-      (!filtros.meus || p[11]));
-    for (const p of lista.slice().reverse()) {
-      const kw = p[7] || 0, raio = kw >= 150 ? 10 : kw >= 50 ? 8.5 : 7;
-      const m = L.circleMarker([p[2], p[3]], {
-        radius: p[11] ? raio + 2 : raio, weight: p[11] ? 3 : 1.5, color: p[11] ? cor.meu : cor.borda,
-        fillColor: cor[estadoClasse(p[4])], fillOpacity: 0.95,
-      });
-      m.on("click", () => abrirPosto(p[0]));
-      m.bindTooltip(`${esc(p[1])} · ${esc(estadoTexto(p[4]))}`, { direction: "top", offset: [0, -6] });
-      camada.addLayer(m);
-    }
-  }
+/* cartões de posto */
+.cards { display: grid; gap: 10px; }
+.posto-card { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; text-align: left; width: 100%;
+  background: var(--surface); border: 0; border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); cursor: pointer; }
+.posto-card .nome { font-weight: 700; font-size: 15.5px; }
+.posto-card .sub { font-size: 12.5px; color: var(--muted); grid-column: 1; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 700;
+  white-space: nowrap; grid-row: span 2; }
+.pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.pill.Livre { color: var(--livre); background: color-mix(in srgb, var(--livre) 14%, transparent); }
+.pill.Ocupado, .pill.Reservado, .pill.Bloqueado { color: var(--ocupado); background: color-mix(in srgb, var(--ocupado) 15%, transparent); }
+.pill.Avariado { color: var(--avariado); background: color-mix(in srgb, var(--avariado) 13%, transparent); }
+.pill.Sem { color: var(--sem); background: color-mix(in srgb, var(--sem) 16%, transparent); }
 
-  // ------------------------------------------------------------------ detalhe do posto (folha)
-  let postoAberto = null;
-  async function abrirPosto(id) {
-    postoAberto = id;
-    $("#sheet-body").innerHTML = `<p class="nota">A carregar…</p>`;
-    $("#sheet").hidden = false; $("#sheet-bg").hidden = false;
-    try {
-      const p = await rpc("voltpt_posto", { p_posto: id });
-      if (postoAberto !== id || !p) return;
-      desenharPosto(p);
-    } catch (e) { $("#sheet-body").innerHTML = `<p class="erro">${esc(e.message)}</p>`; }
-  }
-  function fecharPosto() { $("#sheet").hidden = true; $("#sheet-bg").hidden = true; postoAberto = null; }
-  function desenharPosto(p) {
-    const cls = estadoClasse(p.estado);
-    const tom = (p.tomadas || []).map((t) => `<div class="tomada">
-        <div><div class="t1">${esc(t.tomada)} · ${num(t.kw_real || t.kw)} kW ${esc(t.tipo)}</div>
-             <div class="t2">${esc(t.evse)}${t.desde ? " · mudou " + haQuanto(t.desde) : ""}</div></div>
-        <span class="pill ${estadoClasse(t.estado)}">${esc(estadoTexto(t.estado))}</span></div>`).join("");
-    const meus = p.os_meus && p.os_meus.n ? `<p class="nota">Já carregaste aqui ${p.os_meus.n}× · em média ${eur(p.os_meus.custo_medio)} · última ${dataCurta(p.os_meus.ultimo)}</p>` : "";
-    const alerta = p.alerta && !p.alerta.disparado
-      ? `<button class="btn full" data-cancelar="${esc(p.alerta.id)}">🔕 Cancelar aviso (até ${horaCurta(p.alerta.expira)})</button>`
-      : `<button class="btn primary full" data-acao="avisar">🔔 Avisa-me quando ficar livre</button>`;
-    const navegar = `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}`;
-    $("#sheet-body").innerHTML = `
-      <div class="linha-topo"><div><h3 id="s-nome">${esc(p.posto)}</h3>
-        <p class="nota" style="margin:4px 0 0">${esc([p.operador, p.morada, p.municipio].filter(Boolean).join(" · "))}</p></div>
-        <span class="pill ${cls}">${esc(estadoTexto(p.estado))}</span></div>
-      <div class="tomadas">${tom || '<p class="nota">Sem tomadas registadas.</p>'}</div>
-      ${meus}
-      <div class="acoes">
-        ${alerta}
-        <a class="btn" href="${navegar}" target="_blank" rel="noopener">🧭 Ir para lá</a>
-        ${p.com_grelha ? `<button class="btn" data-acao="calcular">💶 Quanto custa</button>` : `<button class="btn" disabled title="Sem preço conhecido">💶 Sem preço</button>`}
-        <button class="btn full danger" data-acao="denunciar">🚫 Lugar ocupado por quem não carrega</button>
-      </div>
-      <div id="s-extra"></div>
-      <h3 class="sec2" style="margin-top:18px">Costuma estar ocupado?</h3>
-      ${grelhaOcupacao(p.ocupacao)}`;
-    $("#sheet-body").dataset.id = p.id;
-  }
-  function grelhaOcupacao(oc) {
-    if (!oc || !oc.length) return `<p class="nota">Ainda sem histórico neste posto (guarda-se num raio de 30 km do Montijo e nos teus postos; enche dia a dia).</p>`;
-    const mapa = new Map(oc.map(([d, h, v]) => [d * 100 + h, v]));
-    let html = `<div class="grelha"><span></span>${Array.from({ length: 24 }, (_, h) => `<span class="h">${h % 3 === 0 ? h : ""}</span>`).join("")}`;
-    for (let d = 1; d <= 7; d++) {
-      html += `<span class="d">${DIAS[d - 1]}</span>`;
-      for (let h = 0; h < 24; h++) {
-        const v = mapa.get(d * 100 + h);
-        html += v == null ? `<span class="c vazio"></span>` : `<span class="c" style="background:${corEscala(v / 100)}" title="${DIAS[d - 1]} ${h}h: ${v}% ocupado"></span>`;
-      }
-    }
-    return html + `</div><p class="nota">Verde = costuma estar livre; vermelho = costuma estar ocupado (últimos 14 dias).</p>`;
-  }
-  async function avisar(minutos) {
-    const id = $("#sheet-body").dataset.id;
-    try {
-      const r = await rpc("voltpt_alerta_criar", { p_posto: id, p_minutos: minutos });
-      toast(r.ntfy ? `Aviso ligado (${r.lugar}.º na fila).` : "Aviso ligado. Configura o ntfy em Mais para o receberes.", 3500);
-      abrirPosto(id); carregarInicio().catch(() => {});
-    } catch (e) { toast(e.message); }
-  }
-  async function cancelarAviso(id) {
-    try { await rpc("voltpt_alerta_cancelar", { p_alerta: id }); toast("Aviso cancelado."); }
-    catch (e) { toast(e.message); }
-    if (postoAberto) abrirPosto(postoAberto);
-    carregarInicio().catch(() => {});
-  }
-  async function denunciar(motivo) {
-    const id = $("#sheet-body").dataset.id;
-    try {
-      const r = await rpc("voltpt_denunciar", { p_posto: id, p_motivo: motivo });
-      const semEmail = !r.email_link || r.email_link.startsWith("mailto:?");
-      $("#s-extra").innerHTML = `<p class="nota">Denúncia registada${r.autoridade ? " para " + esc(r.autoridade) : ""}.
-        ${semEmail ? "Não há e-mail da autoridade deste município: o e-mail abre sem destinatário." : ""}</p>
-        <a class="btn primary" href="${esc(r.email_link)}">✉️ Abrir e-mail já escrito</a>`;
-    } catch (e) { toast(e.message); }
-  }
+/* KPIs */
+.kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.kpi { background: var(--surface); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow); min-width: 0; }
+.kpi .v { font-size: 22px; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.kpi .l { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.kpi.destaque { background: var(--accent-soft); }
+.kpi.destaque .v { color: var(--accent); }
 
-  // ------------------------------------------------------------------ calculadora
-  let calc = store.get("calc", {}), grelha = null;
-  function abrirCalc() {
-    const i = dados.inicio; if (!i) return;
-    const sel = $("#c-posto");
-    const postos = i.postos_com_preco || [];
-    if (!postos.length) {
-      $("#c-res").innerHTML = `<div class="vazio-msg">Ainda não há grelha de custos. Corre o workflow "cost-grid" no GitHub.</div>`;
-      return;
-    }
-    sel.innerHTML = postos.map((p) => `<option value="${esc(p.id)}">${esc(p.posto)}</option>`).join("");
-    if (!postos.some((p) => p.id === calc.posto)) calc.posto = postos[0].id;
-    sel.value = calc.posto;
-    $("#c-dia").innerHTML = DIAS_LONGOS.map((d, k) => `<option value="${k + 1}">${d[0].toUpperCase() + d.slice(1)}</option>`).join("");
-    $("#c-hora").innerHTML = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, "0")}h</option>`).join("");
-    const agora = new Date();
-    if (!calc.dia) { calc.dia = ((agora.getDay() + 6) % 7) + 1; calc.hora = agora.getHours(); }
-    $("#c-dia").value = calc.dia; $("#c-hora").value = calc.hora;
-    carregarGrelha();
-  }
-  async function carregarGrelha() {
-    try {
-      grelha = await rpc("voltpt_custos", { p_posto: calc.posto, p_soc_inicio: calc.si ?? null, p_soc_alvo: calc.sa ?? null });
-      calc.si = grelha.soc_inicio; calc.sa = grelha.soc_alvo; store.set("calc", calc);
-      const pares = (grelha.pares || []).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
-      $("#c-socs").innerHTML = pares.map(([a, b]) =>
-        `<button class="chip" data-soc="${a}-${b}" aria-pressed="${a === calc.si && b === calc.sa}">${a}→${b}%</button>`).join("");
-      desenharCalc();
-    } catch (e) { toast(e.message); }
-  }
-  function desenharCalc() {
-    const linhas = grelha?.linhas || [];
-    if (!linhas.length) { $("#c-res").innerHTML = `<div class="vazio-msg">Sem custos para este posto.</div>`; $("#c-grelha").innerHTML = ""; $("#c-melhor").innerHTML = ""; return; }
-    const por = new Map(linhas.map((l) => [l[0] * 100 + l[1], l]));
-    const l = por.get(calc.dia * 100 + calc.hora);
-    const custos = linhas.map((x) => x[2]), min = Math.min(...custos), max = Math.max(...custos);
-    $("#c-res").innerHTML = l ? `
-      <div class="muted" style="font-size:13px">${DIAS_LONGOS[calc.dia - 1]} às ${String(calc.hora).padStart(2, "0")}h · ${calc.si}% → ${calc.sa}%</div>
-      <div class="grande">${eur(l[2])}</div>
-      <div class="det"><div>Duração<b>${duracao(l[3])}</b></div><div>Energia<b>${num(l[4], 1)} kWh</b></div>
-        <div>Autonomia ganha<b>${num(l[5])} km</b></div><div>Pago ao minuto<b>${eur(l[6])}</b></div>
-        <div>Por kWh<b>${l[4] ? nf(3).format(l[2] / l[4]) + " €" : "—"}</b></div><div>Por 100 km<b>${l[5] ? eur(l[2] / l[5] * 100) : "—"}</b></div></div>`
-      : `<div class="vazio-msg">Sem valor para essa hora.</div>`;
-    // melhor hora a partir de agora (próxima ocorrência da hora mais barata)
-    const agora = new Date(); let melhor = null;
-    for (let k = 0; k < 168; k++) {
-      const t = new Date(agora.getTime() + k * 3600000), d = ((t.getDay() + 6) % 7) + 1, h = t.getHours();
-      const x = por.get(d * 100 + h);
-      if (x && x[2] <= min + 0.005) { melhor = { k, d, h, x }; break; }
-    }
-    if (melhor && l) {
-      const quando = melhor.k === 0 ? "agora" : melhor.k < 24 && melhor.d === ((agora.getDay() + 6) % 7) + 1 ? `hoje às ${String(melhor.h).padStart(2, "0")}h`
-        : melhor.k < 48 && melhor.d === ((agora.getDay() + 7) % 7) + 1 ? `amanhã às ${String(melhor.h).padStart(2, "0")}h`
-        : `${DIAS_LONGOS[melhor.d - 1]} às ${String(melhor.h).padStart(2, "0")}h`;
-      const poup = l[2] - min;
-      $("#c-melhor").innerHTML = poup > 0.004
-        ? `Mais barato: <b>${quando}</b>, ${eur(min)} — poupas <b>${eur(poup)}</b>.`
-        : `✓ Esta já é das horas mais baratas (${eur(min)}). Próxima: ${quando}.`;
-    } else $("#c-melhor").innerHTML = "";
-    let html = `<span></span>${Array.from({ length: 24 }, (_, h) => `<span class="h">${h % 3 === 0 ? h : ""}</span>`).join("")}`;
-    for (let d = 1; d <= 7; d++) {
-      html += `<span class="d">${DIAS[d - 1]}</span>`;
-      for (let h = 0; h < 24; h++) {
-        const x = por.get(d * 100 + h);
-        if (!x) { html += `<span class="c vazio"></span>`; continue; }
-        const f = max > min ? (x[2] - min) / (max - min) : 0;
-        html += `<button class="c${d === calc.dia && h === calc.hora ? " sel" : ""}" data-dh="${d}-${h}" style="background:${corEscala(f)}" aria-label="${DIAS[d - 1]} ${h}h: ${eur(x[2])}"></button>`;
-      }
-    }
-    $("#c-grelha").innerHTML = html;
-    $("#c-nota").textContent = `Verde ${eur(min)} · vermelho ${eur(max)}. Calculado ${grelha.regime === "ADHOC" ? "com o preço único do posto" : "com a tarifa do operador + MyAtlante"}${dados.inicio?.grelha_em ? ", atualizado " + haQuanto(dados.inicio.grelha_em) : ""}.`;
-  }
-  function corEscala(f) {
-    const cs = getComputedStyle(document.documentElement);
-    const cores = ["--g0", "--g1", "--g2", "--g3", "--g4"].map((v) => cs.getPropertyValue(v).trim());
-    return cores[Math.min(4, Math.max(0, Math.round(f * 4)))];
-  }
+/* alertas */
+.alerta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px;
+  background: var(--accent-soft); border-radius: var(--radius); padding: 12px 14px; font-size: 14px; }
 
-  // ------------------------------------------------------------------ histórico
-  const PAR_DEF = { consumo: 6.5, preco: 1.70, co2: 2.31, rede: 0 };
-  let par = Object.assign({}, PAR_DEF, store.get("param", {}));
-  async function abrirHist() {
-    for (const k of Object.keys(PAR_DEF)) $("#p-" + k).value = par[k];
-    try { dados.hist = await rpc("voltpt_historico"); desenharHist(); } catch (e) { toast(e.message); }
-  }
-  function desenharHist() {
-    const h = dados.hist; if (!h) return;
-    const t = h.totais || {};
-    const combustao = (t.km || 0) / 100 * par.consumo * par.preco;
-    const co2 = (t.km || 0) / 100 * par.consumo * par.co2 - (t.kwh || 0) * par.rede;
-    $("#h-kpis").innerHTML =
-      kpi(eur(t.custo), `${num(t.carregamentos)} carregamentos`) + kpi(num(t.kwh, 1) + " kWh", `≈ ${num(t.km)} km`) +
-      kpi(t.kwh ? nf(3).format(t.custo / t.kwh) + " €" : "—", "por kWh") + kpi(t.km ? eur(t.custo / t.km * 100) : "—", "por 100 km") +
-      kpi(eur(combustao - (t.custo || 0)), "poupado vs combustão", "destaque") + kpi(num(co2) + " kg", "CO2 evitado", "destaque") +
-      kpi(t.custo ? num(100 * (t.tempo || 0) / t.custo) + " %" : "—", "pago ao minuto") +
-      kpi(eur((t.tar_fora_vazio || 0) * 0.78), "poupavas só em vazio");
-    const meses = h.meses || [];
-    $("#h-meses").innerHTML = meses.length ? meses.slice().reverse().map((m) => {
-      const tot = (m.fixo + m.tempo + m.energia + m.taxas) || 1;
-      const seg = (v, c) => `<i class="${c}" style="width:${(100 * v / tot).toFixed(1)}%"></i>`;
-      const [a, mm] = m.mes.split("-");
-      const nome = new Date(+a, +mm - 1, 1).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
-      return `<div class="mes"><div class="topo"><span>${esc(nome)}</span><span>${eur(m.custo)}</span></div>
-        <div class="barra">${seg(m.fixo, "c-fixo")}${seg(m.tempo, "c-tempo")}${seg(m.energia, "c-energia")}${seg(m.taxas, "c-taxas")}</div>
-        <div class="leg"><span><i class="c-energia"></i>Energia+TAR ${eur(m.energia)}</span><span><i class="c-tempo"></i>Minutos ${eur(m.tempo)}</span>
-        <span><i class="c-fixo"></i>Ativação ${eur(m.fixo)}</span><span><i class="c-taxas"></i>Taxas ${eur(m.taxas)}</span></div>
-        <div class="nota" style="margin:6px 0 0">${num(m.n)} carregamentos · ${num(m.kwh, 1)} kWh · ≈ ${num(m.km)} km</div></div>`;
-    }).join("") : `<div class="vazio-msg">Ainda sem carregamentos.</div>`;
-    $("#h-lista").innerHTML = (h.carregamentos || []).map((c) => `<div class="sessao">
-        <div class="s1">${esc(c.posto)}${c.so_vazio ? '<span class="tag">vazio</span>' : ""}${c.tipo === "DC" ? '<span class="tag">DC</span>' : ""}</div>
-        <div class="s3">${eur(c.custo)}</div>
-        <div class="s2">${dataCurta(c.inicio)} ${horaCurta(c.inicio)} · ${num(c.kwh, 1)} kWh · ${duracao(c.min)} · ≈ ${num(c.km)} km</div>
-        <div class="s2" style="text-align:right">${c.kwh ? nf(3).format(c.custo / c.kwh) + " €/kWh" : ""}</div></div>`).join("");
-  }
+/* mapa */
+.map { position: absolute; inset: 0; bottom: calc(var(--tab-h) + var(--safe-b)); z-index: 1; background: var(--surface-2); }
+.map-chips { position: absolute; z-index: 600; top: calc(58px + var(--safe-t)); left: 12px; right: 12px; display: flex; gap: 8px;
+  overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+.chip { flex: none; border: 1px solid var(--line); background: var(--surface); padding: 7px 13px; border-radius: 999px;
+  font-size: 13.5px; font-weight: 650; box-shadow: var(--shadow); cursor: pointer; min-height: 36px; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.fab { position: absolute; z-index: 600; right: 14px; bottom: calc(var(--tab-h) + var(--safe-b) + 56px); width: 48px; height: 48px;
+  border-radius: 50%; border: 0; background: var(--surface); color: var(--accent); box-shadow: var(--shadow); display: grid; place-items: center; cursor: pointer; }
+.map-aviso { position: absolute; z-index: 600; left: 50%; transform: translateX(-50%); top: calc(108px + var(--safe-t));
+  background: var(--surface); padding: 8px 14px; border-radius: 999px; box-shadow: var(--shadow); font-size: 13px; white-space: nowrap; }
+.legenda { position: absolute; z-index: 600; left: 12px; bottom: calc(var(--tab-h) + var(--safe-b) + 12px); display: flex; gap: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent); padding: 6px 10px; border-radius: 10px; font-size: 11.5px; box-shadow: var(--shadow); }
+.legenda span { display: inline-flex; align-items: center; gap: 4px; }
+.st { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.st-Livre { background: var(--livre); } .st-Ocupado { background: var(--ocupado); } .st-Avariado { background: var(--avariado); } .st-Sem { background: var(--sem); }
+.leaflet-container { font: inherit; background: var(--surface-2); }
+.leaflet-control-attribution { font-size: 10px; }
+.leaflet-top { top: calc(100px + var(--safe-t)); }
 
-  // ------------------------------------------------------------------ mais: viagem, ntfy, conta
-  function abrirMais() {
-    calcularViagem();
-    const i = dados.inicio || {};
-    $("#ntfy-topico").value = i.ntfy || store.get("ntfy_rascunho", "");
-    atualizarLinkNtfy();
-    $("#conta-info").textContent = sessao?.email ? `Entraste como ${sessao.email}.` : "";
-  }
-  function calcularViagem() {
-    const c = dados.inicio?.carro || { bateria_kwh: 65, consumo: 19 };
-    const dist = +$("#v-dist").value || 0, soc = +$("#v-soc").value || 0, kw = +$("#v-kw").value || 1, preco = +$("#v-preco").value || 0;
-    const energia = dist * c.consumo / 100;
-    const disponivel = c.bateria_kwh * Math.max(0, soc - 10) / 100;
-    const carregar = Math.max(0, energia - disponivel);
-    const paragens = Math.ceil(carregar / (c.bateria_kwh * 0.7));
-    const minutos = carregar / 0.95 / kw * 60;
-    $("#v-res").innerHTML = kpi(num(energia, 1) + " kWh", "a viagem gasta") + kpi(num(paragens), paragens === 1 ? "paragem" : "paragens") +
-      kpi(carregar ? duracao(minutos) : "0h00", "a carregar") + kpi(eur(carregar / 0.95 * preco), "custo das paragens");
-  }
-  function atualizarLinkNtfy() {
-    const t = $("#ntfy-topico").value.trim();
-    const a = $("#ntfy-abrir");
-    if (t) { a.href = `https://ntfy.sh/${encodeURIComponent(t)}`; a.removeAttribute("aria-disabled"); }
-    else { a.removeAttribute("href"); a.setAttribute("aria-disabled", "true"); }
-  }
-  function gerarTopico() {
-    const a = new Uint8Array(9); crypto.getRandomValues(a);
-    return "voltpt-" + Array.from(a, (b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
-  }
+/* folha de detalhe */
+.sheet-bg { position: fixed; inset: 0; z-index: 950; background: rgba(8,16,14,.35); }
+.sheet { position: fixed; z-index: 960; left: 0; right: 0; bottom: 0; max-height: 86vh; overflow-y: auto; background: var(--surface);
+  border-radius: 20px 20px 0 0; padding: 8px 18px calc(22px + var(--safe-b)); box-shadow: 0 -10px 30px rgba(0,0,0,.18);
+  max-width: 640px; margin: 0 auto; overscroll-behavior: contain; }
+.fechar { position: sticky; top: 0; float: right; margin: -4px -6px 0 8px; width: 36px; height: 36px; border-radius: 50%;
+  border: 0; background: var(--surface-2); color: var(--muted); font-size: 15px; cursor: pointer; z-index: 2; }
+.grip { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 4px auto 12px; }
+.sheet h3 { margin: 0; font-size: 19px; letter-spacing: -.01em; }
+.sheet .linha-topo { clear: none; display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.sheet .acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0 4px; }
+.sheet .acoes .full { grid-column: 1 / -1; }
+.tomadas { display: grid; gap: 6px; margin-top: 12px; }
+.tomada { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 13.5px; }
+.tomada .t1 { font-weight: 650; }
+.tomada .t2 { color: var(--muted); font-size: 12px; }
+.escolha { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 
-  function mensagemLogin(m) {
-    if (/api key|apikey|jwt/i.test(m)) return "A chave pública no config.js está errada ou incompleta (" + m + ").";
-    if (/secret/i.test(m)) return "No config.js está a chave secreta: usa a Publishable key.";
-    if (/invalid login credentials/i.test(m)) return "E-mail ou password errados.";
-    if (/not confirmed/i.test(m)) return "Esta conta ainda não está confirmada no Supabase (Users → a conta → Confirm).";
-    if (/failed to fetch|networkerror|load failed/i.test(m)) return "Sem ligação ao Supabase: confirma o endereço no config.js e a internet.";
-    return m;
-  }
+/* calculadora */
+.campo { display: grid; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.linha2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.chips-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips-wrap .chip { box-shadow: none; min-height: 34px; padding: 5px 11px; font-size: 13px; }
+.resultado { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; margin-top: 4px; }
+.resultado .grande { font-size: 40px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.resultado .det { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin-top: 10px; font-size: 13.5px; }
+.resultado .det b { display: block; font-size: 16px; }
+.melhor { margin-top: 10px; border-radius: var(--radius); padding: 13px 16px; background: var(--accent-soft); font-size: 14.5px; }
+.melhor b { color: var(--accent); }
+.grelha { display: grid; grid-template-columns: 30px repeat(24, minmax(0, 1fr)); gap: 2px; font-size: 9.5px; user-select: none; }
+.grelha .h, .grelha .d { color: var(--muted); display: grid; place-items: center; font-weight: 650; }
+.grelha .d { font-size: 11px; place-items: center start; }
+.grelha .c { aspect-ratio: 1 / 1.35; border-radius: 3px; border: 0; padding: 0; cursor: pointer; min-width: 0; }
+.grelha .c.sel { outline: 2px solid var(--text); outline-offset: 1px; position: relative; z-index: 1; }
+.grelha .c.vazio { background: var(--surface-2); cursor: default; }
 
-  // ------------------------------------------------------------------ eventos
-  function ligarEventos() {
-    $("#login-form").addEventListener("submit", async (ev) => {
-      ev.preventDefault();
-      const btn = ev.submitter || $("#login-form button"); btn.disabled = true; $("#login-erro").textContent = "";
-      try {
-        await login($("#login-email").value.trim(), $("#login-pass").value);
-        await arrancar();
-      } catch (e) {
-        $("#login-erro").textContent = mensagemLogin(e.message);
-      } finally { btn.disabled = false; }
-    });
-    $$(".tabbar button").forEach((b) => b.addEventListener("click", () => { fecharPosto(); mostrar(b.dataset.v); }));
-    $("#frescura").addEventListener("click", () => atualizarTudo(true));
-    $("#sheet-bg").addEventListener("click", fecharPosto);
-    $("#sheet-fechar").addEventListener("click", fecharPosto);
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharPosto(); });
-    document.addEventListener("click", (e) => {
-      const card = e.target.closest("[data-posto]"); if (card) return abrirPosto(card.dataset.posto);
-      const canc = e.target.closest("[data-cancelar]"); if (canc) return cancelarAviso(canc.dataset.cancelar);
-      const ac = e.target.closest("[data-acao]"); if (!ac) return;
-      if (ac.dataset.acao === "avisar") {
-        $("#s-extra").innerHTML = `<p class="nota">Durante quanto tempo?</p><div class="escolha">
-          ${[30, 60, 120, 240].map((m) => `<button class="btn" data-acao="avisar-${m}">${m < 60 ? m + " min" : m / 60 + " h"}</button>`).join("")}</div>`;
-      } else if (ac.dataset.acao.startsWith("avisar-")) avisar(+ac.dataset.acao.slice(7));
-      else if (ac.dataset.acao === "calcular") { calc.posto = $("#sheet-body").dataset.id; calc.si = calc.sa = undefined; store.set("calc", calc); fecharPosto(); mostrar("calc"); }
-      else if (ac.dataset.acao === "denunciar") {
-        $("#s-extra").innerHTML = `<p class="nota">O que se passa?</p><div class="escolha">
-          <button class="btn" data-acao="den-ICE_PARKED">Carro a combustão</button>
-          <button class="btn" data-acao="den-EV_NOT_CHARGING">Elétrico sem carregar</button>
-          <button class="btn" data-acao="den-BLOCKED_ACCESS">Acesso bloqueado</button></div>`;
-      } else if (ac.dataset.acao.startsWith("den-")) denunciar(ac.dataset.acao.slice(4));
-    });
-    // calculadora
-    $("#c-posto").addEventListener("change", (e) => { calc.posto = e.target.value; calc.si = calc.sa = undefined; carregarGrelha(); });
-    $("#c-dia").addEventListener("change", (e) => { calc.dia = +e.target.value; store.set("calc", calc); desenharCalc(); });
-    $("#c-hora").addEventListener("change", (e) => { calc.hora = +e.target.value; store.set("calc", calc); desenharCalc(); });
-    $("#c-socs").addEventListener("click", (e) => {
-      const b = e.target.closest("[data-soc]"); if (!b) return;
-      [calc.si, calc.sa] = b.dataset.soc.split("-").map(Number); carregarGrelha();
-    });
-    $("#c-grelha").addEventListener("click", (e) => {
-      const b = e.target.closest("[data-dh]"); if (!b) return;
-      [calc.dia, calc.hora] = b.dataset.dh.split("-").map(Number);
-      $("#c-dia").value = calc.dia; $("#c-hora").value = calc.hora; store.set("calc", calc); desenharCalc();
-    });
-    // histórico
-    for (const k of Object.keys(PAR_DEF)) $("#p-" + k).addEventListener("input", (e) => {
-      const v = parseFloat(String(e.target.value).replace(",", ".")); if (isNaN(v)) return;
-      par[k] = v; store.set("param", par); desenharHist();
-    });
-    // viagem
-    ["#v-dist", "#v-soc", "#v-kw", "#v-preco"].forEach((s) => $(s).addEventListener("input", calcularViagem));
-    // ntfy
-    $("#ntfy-topico").addEventListener("input", () => { store.set("ntfy_rascunho", $("#ntfy-topico").value.trim()); atualizarLinkNtfy(); });
-    $("#ntfy-gerar").addEventListener("click", () => { $("#ntfy-topico").value = gerarTopico(); store.set("ntfy_rascunho", $("#ntfy-topico").value); atualizarLinkNtfy(); });
-    $("#ntfy-gravar").addEventListener("click", async () => {
-      try {
-        await rpc("voltpt_ntfy", { p_topico: $("#ntfy-topico").value.trim() });
-        $("#ntfy-msg").textContent = "Gravado. Na app ntfy, carrega em + e subscreve este mesmo tópico.";
-        carregarInicio().catch(() => {});
-      } catch (e) { $("#ntfy-msg").textContent = e.message; }
-    });
-    $("#btn-sair").addEventListener("click", sair);
-    // voltar à página: atualiza
-    document.addEventListener("visibilitychange", () => { if (!document.hidden && sessao) atualizarTudo(false); });
-  }
+/* histórico */
+.params { margin-top: 12px; background: var(--surface); border-radius: var(--radius); padding: 10px 14px; box-shadow: var(--shadow); }
+.params summary { cursor: pointer; font-weight: 650; font-size: 14px; padding: 4px 0; }
+.params .linha2 { margin-top: 10px; }
+.meses { display: grid; gap: 10px; }
+.mes { background: var(--surface); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow); }
+.mes .topo { display: flex; justify-content: space-between; font-weight: 700; }
+.barra { display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin: 8px 0 6px; background: var(--surface-2); }
+.barra i { display: block; height: 100%; }
+.leg { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--muted); }
+.leg i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-right: 4px; }
+.c-fixo { background: #64748b; } .c-tempo { background: var(--ocupado); } .c-energia { background: var(--accent); } .c-taxas { background: #a78bfa; }
+.lista { display: grid; gap: 8px; }
+.sessao { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; background: var(--surface); border-radius: 12px; padding: 11px 14px; box-shadow: var(--shadow); }
+.sessao .s1 { font-weight: 650; font-size: 14px; }
+.sessao .s2 { font-size: 12px; color: var(--muted); }
+.sessao .s3 { font-weight: 750; font-variant-numeric: tabular-nums; text-align: right; }
+.tag { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 5px; background: var(--accent-soft); color: var(--accent); margin-left: 6px; vertical-align: 1px; }
 
-  let ultimaAtualizacao = 0;
-  async function atualizarTudo(forcar) {
-    if (!forcar && Date.now() - ultimaAtualizacao < 60000) return;
-    ultimaAtualizacao = Date.now();
-    try {
-      await carregarInicio();
-      if (vista === "mapa") carregarMapa();
-      if (vista === "hist") abrirHist();
-      if (postoAberto) abrirPosto(postoAberto);
-      if (forcar) toast("Atualizado.");
-    } catch (e) { toast(e.message); }
-  }
+.ntfy input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
 
-  async function arrancar() {
-    $("#login").hidden = true; $("#app").hidden = false;
-    try { await carregarInicio(); ultimaAtualizacao = Date.now(); }
-    catch (e) { if (!sessao) return; toast(e.message, 5000); }
-    mostrar(vista);
-    clearInterval(arrancar._i);
-    arrancar._i = setInterval(() => { if (!document.hidden && sessao) atualizarTudo(false); }, 120000);
-  }
+.toast { position: fixed; z-index: 990; left: 50%; transform: translateX(-50%); bottom: calc(var(--tab-h) + var(--safe-b) + 14px);
+  background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px; box-shadow: var(--shadow); max-width: calc(100% - 32px); }
+.vazio-msg { background: var(--surface); border-radius: var(--radius); padding: 16px; color: var(--muted); font-size: 14px; box-shadow: var(--shadow); }
 
-  ligarEventos();
-  if (!CFG.supabaseKey || CFG.supabaseKey.startsWith("COLA_")) {
-    $("#login").hidden = false;
-    $("#login-erro").textContent = "Falta a chave pública do Supabase no config.js.";
-  } else if (sessao) arrancar();
-  else $("#login").hidden = false;
-})();
+@media (min-width: 700px) {
+  .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
