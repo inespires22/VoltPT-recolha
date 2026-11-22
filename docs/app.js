@@ -702,7 +702,7 @@
     // cada vez que entras: "De" volta à tua localização (campo vazio) e "Para" fica em branco
     for (const id of ["#v-origem", "#v-destino"]) { const el = $(id); el.value = ""; delete el.dataset.lat; delete el.dataset.lon; }
     $("#sug-origem").hidden = true; $("#sug-destino").hidden = true;
-    $("#v-out").hidden = true; $("#v-erro").textContent = "";
+    $("#v-out").hidden = true; $("#v-vazio").hidden = false; $("#v-erro").textContent = "";
     if (mapaV) setTimeout(() => mapaV.invalidateSize(), 50);
   }
   // instante (ms) do "AAAA-MM-DDTHH:MM" escrito, em hora de Lisboa
@@ -889,7 +889,7 @@
     finally { btn.disabled = false; btn.textContent = "Calcular paragens"; }
   }
   function desenharViagem(a, b, rota, plano) {
-    $("#v-out").hidden = false;
+    $("#v-out").hidden = false; $("#v-vazio").hidden = true;
     const ps = plano.paragens, minCarga = ps.reduce((s, p) => s + (p.min || 0), 0);
     const custos = ps.map((p) => p.custo), semPreco = custos.some((c) => c == null);
     const total = custos.reduce((s, c) => s + (c || 0), 0);
@@ -928,7 +928,7 @@
     L.marker([b.lat, b.lon], { icon: pino("🏁", "ponta") }).addTo(camadaV);
     ps.forEach((p, k) => L.marker([p.lat, p.lon], { icon: pino(k + 1, "num") }).on("click", () => abrirPosto(p.id)).addTo(camadaV));
     setTimeout(() => { mapaV.invalidateSize(); mapaV.fitBounds(linha.getBounds(), { padding: [24, 24] }); }, 60);
-    $("#v-res").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!matchMedia("(min-width: 1024px)").matches) $("#v-res").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   // avisos (ntfy)

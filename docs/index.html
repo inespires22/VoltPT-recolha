@@ -13,7 +13,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="app.css?v=16">
+<link rel="stylesheet" href="app.css?v=19">
 </head>
 <body>
 
@@ -43,17 +43,21 @@
   <main>
     <!-- Início -->
     <section id="v-inicio" class="view">
+      <div class="col-a">
       <div id="hero" class="hero esqueleto"></div>
       <div class="atalhos">
         <button class="atalho" data-ir="mapa"><span class="ic">📍</span>Perto de mim</button>
         <button class="atalho" data-ir="viagem"><span class="ic">🧭</span>Planear viagem</button>
         <button class="atalho" data-ir="hist"><span class="ic">📊</span>Histórico</button>
       </div>
+      </div>
+      <div class="col-b">
       <div id="alertas-box"></div>
       <div class="sec-linha"><h2 class="sec">★ Favoritos</h2><button class="link" data-ir="favs">Ver no mapa ›</button></div>
       <div id="meus-postos" class="cards"></div>
       <div id="ultimo-box"></div>
       <p class="nota" id="nota-estado"></p>
+      </div>
     </section>
 
     <!-- Mapa -->
@@ -79,6 +83,7 @@
 
     <!-- Histórico -->
     <section id="v-hist" class="view" hidden>
+      <div class="col-a">
       <div class="filtro-datas">
         <div class="chips-wrap" role="group" aria-label="Período">
           <button class="chip" data-per="mes">Este mês</button>
@@ -106,14 +111,18 @@
           <label class="campo">Preço por litro (€)<input id="p-preco" type="number" step="0.01" min="0.5" max="3" inputmode="decimal"></label>
         </details>
       </div>
+      </div>
+      <div class="col-b">
       <h3 class="sec2">Por mês</h3>
       <div id="h-meses" class="meses"></div>
       <h3 class="sec2">Carregamentos</h3>
       <div id="h-lista" class="lista"></div>
+      </div>
     </section>
 
     <!-- Mais -->
     <section id="v-viagem" class="view" hidden>
+      <div class="col-a">
       <!-- Planear viagem -->
       <div class="hero hero-mini">
         <div class="h-top"><span>🧭 Planear viagem</span></div>
@@ -141,12 +150,16 @@
         <button id="v-calcular" class="btn primary full" type="button">Calcular paragens</button>
         <p id="v-erro" class="calc-erro" role="alert"></p>
       </div>
+      </div>
+      <div class="col-b">
+      <div id="v-vazio" class="vazio-msg so-pc">🗺️ O mapa e as paragens aparecem aqui depois de carregares em <b>Calcular paragens</b>.</div>
       <div id="v-out" hidden>
         <div id="v-res" class="kpis"></div>
         <div id="viagem-mapa" class="mapa-viagem" role="region" aria-label="Mapa da viagem"></div>
         <div id="v-paragens" class="paragens"></div>
         <a id="v-gmaps" class="btn full" target="_blank" rel="noopener">🧭 Abrir a rota no Google Maps</a>
         <p class="nota" id="v-nota"></p>
+      </div>
       </div>
     </section>
 
@@ -188,9 +201,9 @@
   <div id="toast" class="toast" role="status" hidden></div>
 </div>
 
-<script src="config.js?v=16"></script>
+<script src="config.js?v=19"></script>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="calc.js?v=16"></script>
-<script src="app.js?v=16"></script>
+<script src="calc.js?v=19"></script>
+<script src="app.js?v=19"></script>
 </body>
 </html>
