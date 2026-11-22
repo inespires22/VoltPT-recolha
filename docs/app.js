@@ -495,7 +495,7 @@
     const tm = tomadas[selCalc.tomada], manual = tm.manual, adhoc = !!(manual && manual.party === "ADHOC");
     const params = {
       carro: { curva: t.carro.curva.map(([a, b]) => [+a, +b]), bateria_kwh: +t.carro.bateria_kwh,
-               max_ac_kw: +t.carro.max_ac_kw, max_dc_kw: +t.carro.max_dc_kw, consumo: +t.carro.consumo },
+               max_ac_kw: +t.carro.max_ac_kw, max_dc_kw: +t.carro.max_dc_kw, consumo: +t.carro.consumo, eff_ac: +t.carro.eff_ac || 0.9 },
       tomada: { tipo: tm.tipo, kw_util: +tm.kw_util }, opc: manual || VoltCalc.tarifaNap(tm.nap),
       regime: adhoc ? "ADHOC" : "MOBIE", ceme: t.ceme, taxas: t.taxas, si: soc.si, sa: soc.sa,
     };

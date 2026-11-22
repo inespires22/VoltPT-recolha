@@ -59,7 +59,7 @@
     return Math.max(1.4, carro.max_ac_kw * (100 - soc) / 5);
   }
   function simular(carro, tomada, si, sa, t0) {
-    const dc = tomada.tipo === "DC", eff = dc ? EFF_DC : EFF_AC;
+    const dc = tomada.tipo === "DC", eff = dc ? EFF_DC : (+carro.eff_ac || EFF_AC);
     const cap = carro.bateria_kwh, kwPosto = tomada.kw_util;
     const passos = [];
     let soc = si, el = 0;
@@ -153,7 +153,7 @@
     }
     const vat = Math.round(sub * iva / 100 * 1e4) / 1e4;
     const total = Math.round((sub + vat) * 100) / 100;
-    const eff = p.tomada.tipo === "DC" ? EFF_DC : EFF_AC;
+    const eff = p.tomada.tipo === "DC" ? EFF_DC : (+p.carro.eff_ac || EFF_AC);
     return { custo: total, dur_min: Math.round(dur / 6) / 10, kwh: Math.round(energia * 100) / 100,
              km: Math.round(energia * eff / p.carro.consumo * 100),
              tempo: Math.round(opc.tempo * (1 + iva / 100) * 100) / 100, energiaPorPreco };
