@@ -21,9 +21,10 @@
     }
     return o;
   }
-  function lisboa(ms) {                       // {dia ISO 1..7, seg (segundos desde a meia-noite local)}
-    const d = new Date(ms + offsetMin(ms) * 60000);
-    return { dia: ((d.getUTCDay() + 6) % 7) + 1, seg: d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds() };
+  function lisboa(ms) {   // {dia ISO 1..7, seg (segundos desde a meia-noite local), ver (hora de verão)}
+    const o = offsetMin(ms), d = new Date(ms + o * 60000);
+    return { dia: ((d.getUTCDay() + 6) % 7) + 1, seg: d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds(),
+             ver: o === 60 };
   }
   // instante UTC de "dia ISO d, hora h" na semana que começa na segunda-feira `segunda` (Lisboa)
   function inicioSemana(agora) {
@@ -80,12 +81,14 @@
   function prepara(tarifa) {
     return (tarifa.elements || []).map((e) => ({
       ini: hms(e.start_time), fim: hms(e.end_time), dias: e.day_of_week && e.day_of_week.length ? e.day_of_week : null,
+      hl: e.hora_legal || null,
       dmin: e.min_duration_s ?? null, dmax: e.max_duration_s ?? null,
       comp: (e.components || []).map((c) => ({ dim: c.dimension, preco: +c.price, passo: +(c.step_size || 1) })),
     }));
   }
   function serve(e, ps) {
     if (e.dias && !e.dias.includes(ps.l.dia)) return false;
+    if (e.hl && (e.hl === "verao") !== ps.l.ver) return false;
     if (e.ini != null && e.fim != null) {
       const t = ps.l.seg;
       if (e.ini <= e.fim) { if (!(t >= e.ini && t < e.fim)) return false; }
@@ -97,7 +100,7 @@
   }
   /** Devolve o custo SEM IVA da tarifa e a parte paga ao tempo (sem IVA). */
   function custoTarifa(els, passos, inclIva, iva) {
-    const baldes = new Map();
+    const baldes = new Map(), kwhPorPreco = new Map();
     for (const dim of ["ENERGY", "TIME"]) {
       for (const ps of passos) {
         for (let ei = 0; ei < els.length; ei++) {
@@ -105,6 +108,7 @@
           if (ci < 0 || !serve(els[ei], ps)) continue;
           const k = ei + ":" + ci;
           baldes.set(k, (baldes.get(k) || 0) + (dim === "ENERGY" ? ps.grid * 1000 : ps.dt));
+          if (dim === "ENERGY") { const pr = els[ei].comp[ci].preco; kwhPorPreco.set(pr, (kwhPorPreco.get(pr) || 0) + ps.grid); }
           break;
         }
       }
@@ -126,7 +130,7 @@
       else v = preco;
       total += Math.round(v * 1e4) / 1e4;
     }
-    return { total, tempo };
+    return { total, tempo, kwhPorPreco };
   }
 
   /**
@@ -140,9 +144,11 @@
     const iva = p.taxas.iva, energia = passos.reduce((a, x) => a + x.grid, 0);
     const dur = passos.reduce((a, x) => a + x.dt, 0);
     const opc = custoTarifa(prepara(p.opc), passos, !!p.opc.prices_include_vat, iva);
-    let sub = opc.total;
+    let sub = opc.total, energiaPorPreco = [];
     if (p.regime !== "ADHOC" && p.ceme) {
-      sub += custoTarifa(prepara(p.ceme), passos, !!p.ceme.prices_include_vat, iva).total;
+      const ce = custoTarifa(prepara(p.ceme), passos, !!p.ceme.prices_include_vat, iva);
+      sub += ce.total;
+      energiaPorPreco = [...ce.kwhPorPreco].map(([preco, kwh]) => ({ preco, kwh })).sort((a, b) => a.preco - b.preco);
       sub += p.taxas.egme + Math.round(Math.round(energia * 1e4) / 1e4 * p.taxas.iec * 1e4) / 1e4;
     }
     const vat = Math.round(sub * iva / 100 * 1e4) / 1e4;
@@ -150,7 +156,7 @@
     const eff = p.tomada.tipo === "DC" ? EFF_DC : EFF_AC;
     return { custo: total, dur_min: Math.round(dur / 6) / 10, kwh: Math.round(energia * 100) / 100,
              km: Math.round(energia * eff / p.carro.consumo * 100),
-             tempo: Math.round(opc.tempo * (1 + iva / 100) * 100) / 100 };
+             tempo: Math.round(opc.tempo * (1 + iva / 100) * 100) / 100, energiaPorPreco };
   }
 
   /** Grelha da semana (168 linhas [dia, hora, custo, min, kWh, km, tempo]) a partir de agora. */
@@ -172,5 +178,20 @@
     return { elements: [{ components: c }], prices_include_vat: false };
   }
 
-  root.VoltCalc = { estimar, semana, tarifaNap, lisboa, instante, inicioSemana };
+  /** Períodos de um dia: [{ini, fim (segundos), preco}] do preço de energia da tarifa (ex.: CEME),
+   *  para mostrar "vazio 00:00–09:30 · 13:00–18:30 …". `t0` = meia-noite local desse dia (ms). */
+  function periodosDia(tarifa, t0) {
+    const els = prepara(tarifa), out = [];
+    for (let m = 0; m < 1440; m++) {
+      const ps = { el: 0, l: lisboa(t0 + m * 60000) };
+      if (ps.l.seg !== m * 60) ps.l = Object.assign({}, ps.l, { seg: m * 60 });   // dia da mudança de hora
+      let preco = null;
+      for (const e of els) { const c = e.comp.find((x) => x.dim === "ENERGY"); if (c && serve(e, ps)) { preco = c.preco; break; } }
+      const u = out[out.length - 1];
+      if (u && u.preco === preco) u.fim = (m + 1) * 60; else out.push({ ini: m * 60, fim: (m + 1) * 60, preco });
+    }
+    return out;
+  }
+
+  root.VoltCalc = { estimar, semana, tarifaNap, lisboa, instante, inicioSemana, periodosDia };
 })(typeof window !== "undefined" ? window : globalThis);

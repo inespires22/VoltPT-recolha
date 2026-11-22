@@ -299,6 +299,37 @@
   // o gesto/botão "voltar" do telemóvel também fecha a folha (popstate), em vez de sair da página
   function fecharPosto() { $("#sheet").hidden = true; $("#sheet-bg").hidden = true; postoAberto = null; tarifaPosto = null; }
   function desenharPosto(p) {
+    $("#sheet-body").innerHTML = `
+      <div id="s-topo">${htmlTopoPosto(p)}</div>
+      <div id="s-extra"></div>
+      ${htmlCalc()}
+      <div id="s-ocup">${htmlOcupacao(p)}</div>`;
+    $("#sheet-body").dataset.id = p.id;
+    desenharFav(p);
+    iniciarCalc(p.id);
+  }
+  function htmlOcupacao(p) {
+    return `<h3 class="sec2" style="margin-top:18px">Costuma estar ocupado?</h3>${grelhaOcupacao(p.ocupacao)}`;
+  }
+  function desenharFav(p) {
+    const fav = $("#sheet-fav");
+    fav.hidden = false; fav.dataset.id = p.id;
+    fav.setAttribute("aria-pressed", p.favorito ? "true" : "false");
+    fav.textContent = p.favorito ? "★" : "☆";
+    fav.setAttribute("aria-label", p.favorito ? "Tirar dos favoritos" : "Marcar como favorito");
+  }
+  // Atualização automática / depois de uma ação: só o estado, as tomadas e os botões.
+  // A calculadora (o que estás a escrever) fica como está.
+  async function atualizarFolha(id) {
+    try {
+      const p = await rpc("voltpt_posto", { p_posto: id });
+      if (postoAberto !== id || !p || !$("#s-topo")) return;
+      $("#s-topo").innerHTML = htmlTopoPosto(p);
+      $("#s-ocup").innerHTML = htmlOcupacao(p);
+      desenharFav(p);
+    } catch (_) { /* fica o que estava */ }
+  }
+  function htmlTopoPosto(p) {
     const cls = estadoClasse(p.estado);
     const tom = (p.tomadas || []).map((t) => `<div class="tomada">
         <div><div class="t1">${esc(t.tomada)} · ${num(t.kw_real || t.kw)} kW ${esc(t.tipo)}</div>
@@ -310,7 +341,7 @@
       ? `<button class="btn full" data-cancelar="${esc(p.alerta.id)}">🔕 Cancelar aviso (até ${horaCurta(p.alerta.expira)})</button>`
       : `<button class="btn primary full" data-acao="avisar">🔔 Avisa-me quando ficar livre</button>`;
     const navegar = `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}`;
-    $("#sheet-body").innerHTML = `
+    return `
       <div class="linha-topo"><div><h3 id="s-nome">${esc(p.posto)}</h3>
         <p class="nota" style="margin:4px 0 0">${esc([p.operador, p.morada, p.municipio].filter(Boolean).join(" · "))}</p></div>
         <span class="pill ${cls}">${esc(estadoTexto(p.estado))}</span></div>
@@ -320,18 +351,7 @@
         ${alerta}
         <a class="btn" href="${navegar}" target="_blank" rel="noopener">🧭 Ir para lá</a>
         <button class="btn full danger" data-acao="denunciar">🚫 Lugar ocupado por quem não carrega</button>
-      </div>
-      <div id="s-extra"></div>
-      ${htmlCalc()}
-      <h3 class="sec2" style="margin-top:18px">Costuma estar ocupado?</h3>
-      ${grelhaOcupacao(p.ocupacao)}`;
-    $("#sheet-body").dataset.id = p.id;
-    const fav = $("#sheet-fav");
-    fav.hidden = false; fav.dataset.id = p.id;
-    fav.setAttribute("aria-pressed", p.favorito ? "true" : "false");
-    fav.textContent = p.favorito ? "★" : "☆";
-    fav.setAttribute("aria-label", p.favorito ? "Tirar dos favoritos" : "Marcar como favorito");
-    iniciarCalc(p.id);
+      </div>`;
   }
   async function alternarFavorito() {
     const b = $("#sheet-fav"), id = b.dataset.id, novo = b.getAttribute("aria-pressed") !== "true";
@@ -369,13 +389,13 @@
     try {
       const r = await rpc("voltpt_alerta_criar", { p_posto: id, p_minutos: minutos });
       toast(r.ntfy ? `Aviso ligado (${r.lugar}.º na fila).` : "Aviso ligado. Configura o ntfy em Mais para o receberes.", 3500);
-      abrirPosto(id); carregarInicio().catch(() => {});
+      atualizarFolha(id); carregarInicio().catch(() => {});
     } catch (e) { toast(e.message); }
   }
   async function cancelarAviso(id) {
     try { await rpc("voltpt_alerta_cancelar", { p_alerta: id }); toast("Aviso cancelado."); }
     catch (e) { toast(e.message); }
-    if (postoAberto) abrirPosto(postoAberto);
+    if (postoAberto) atualizarFolha(postoAberto);
     carregarInicio().catch(() => {});
   }
   async function denunciar(motivo) {
@@ -392,7 +412,8 @@
   // ------------------------------------------------------------------ calculadora (dentro da folha do posto)
   let kc = Object.assign({ si: 20, sa: 80 }, store.get("kc", {}));   // bateria agora / até onde (lembradas)
   let tarifaPosto = null, linhasCalc = null, selCalc = null, tCalc = null;
-  const horaAgora = () => { const l = VoltCalc.lisboa(Date.now()); return { dia: l.dia, hora: Math.floor(l.seg / 3600) }; };
+  const horaAgora = () => { const l = VoltCalc.lisboa(Date.now()); return { dia: l.dia, hora: Math.floor(l.seg / 3600), min: Math.floor(l.seg / 60) }; };
+  const hhmm = (min) => `${String(Math.floor(min / 60) % 24).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
   function htmlCalc() {
     const a = horaAgora();
     return `<div class="calc-box" id="calc-box">
@@ -407,7 +428,7 @@
         <div class="campo" id="k-tomadas-box" hidden><span>Tomada</span><div id="k-tomadas" class="chips-wrap" role="group" aria-label="Tomada"></div></div>
         <div class="linha2">
           <label class="campo">Dia<select id="k-dia">${DIAS_LONGOS.map((d, k) => `<option value="${k + 1}">${k + 1 === a.dia ? "Hoje" : d[0].toUpperCase() + d.slice(1)}</option>`).join("")}</select></label>
-          <label class="campo">Hora de início<select id="k-hora">${Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, "0")}h</option>`).join("")}</select></label>
+          <label class="campo">Hora de início<input id="k-hora" type="time" step="60" value="${hhmm(a.min)}"></label>
         </div>
         <div id="k-res" class="resultado"><p class="nota">A calcular…</p></div>
         <div id="k-melhor" class="melhor" hidden></div>
@@ -418,8 +439,9 @@
     </div>`;
   }
   async function iniciarCalc(id) {
-    selCalc = Object.assign(horaAgora(), { tomada: 0 });
-    $("#k-dia").value = selCalc.dia; $("#k-hora").value = selCalc.hora;
+    const a = horaAgora();
+    selCalc = { dia: a.dia, min: a.min, agora: true, tomada: 0 };   // "agora" até mudares o dia ou a hora
+    $("#k-dia").value = selCalc.dia; $("#k-hora").value = hhmm(selCalc.min);
     try {
       const t = await rpc("voltpt_tarifa", { p_posto: id });
       if (postoAberto !== id) return;
@@ -468,21 +490,45 @@
   function desenharCalc() {
     const L_ = linhasCalc; if (!L_ || !$("#calc-box")) return;
     const linhas = L_.linhas, por = new Map(linhas.map((l) => [l[0] * 100 + l[1], l]));
-    const agora = horaAgora(), eAgora = selCalc.dia === agora.dia && selCalc.hora === agora.hora;
-    let l = por.get(selCalc.dia * 100 + selCalc.hora);
-    if (eAgora) {                         // começar já: hora exata, não a hora cheia
-      const r = VoltCalc.estimar(Object.assign({}, L_.params, { inicio: Date.now() }));
-      l = [selCalc.dia, selCalc.hora, r.custo, Math.round(r.dur_min), Math.round(r.kwh * 10) / 10, r.km, r.tempo];
-    }
+    const agora = horaAgora(), eAgora = selCalc.agora;
+    const segunda = VoltCalc.inicioSemana(Date.now());
+    const inicio = eAgora ? Date.now() : VoltCalc.instante(segunda, selCalc.dia, selCalc.min / 60);
+    const r = VoltCalc.estimar(Object.assign({}, L_.params, { inicio }));
+    const l = [selCalc.dia, Math.floor(selCalc.min / 60), r.custo, Math.round(r.dur_min), Math.round(r.kwh * 10) / 10, r.km, r.tempo];
     const custos = linhas.map((x) => x[2]), min = Math.min(...custos), max = Math.max(...custos);
     const p = L_.params;
-    const fim = new Date((eAgora ? Date.now() : VoltCalc.instante(VoltCalc.inicioSemana(Date.now()), selCalc.dia, selCalc.hora)) + l[3] * 60000);
+    const fim = new Date(inicio + r.dur_min * 60000);
+    // energia em vazio / fora de vazio (preço de energia + TAR do teu contrato)
+    const ceme = !L_.adhoc && p.ceme ? p.ceme : null;
+    const precosCeme = ceme ? [...new Set((ceme.elements || []).flatMap((e) => (e.components || [])
+      .filter((c) => c.dimension === "ENERGY").map((c) => +c.price)))].sort((a, b) => a - b) : [];
+    const doisPeriodos = precosCeme.length >= 2, pVazio = precosCeme[0];
+    const nomeP = (preco) => preco === pVazio ? "em vazio" : "fora de vazio";
+    let periodosHtml = "";
+    if (doisPeriodos) {
+      const partes = (r.energiaPorPreco || []).filter((x) => x.kwh >= 0.05);
+      const div = partes.length > 1
+        ? partes.map((x) => `<b>${num(x.kwh, 1)} kWh</b> ${nomeP(x.preco)}`).join(" + ")
+        : partes.length ? `Tudo <b>${nomeP(partes[0].preco)}</b>` : "";
+      // horário do dia escolhido
+      const t0 = VoltCalc.instante(segunda, selCalc.dia, 0);
+      const vaz = VoltCalc.periodosDia(ceme, t0).filter((x) => x.preco === pVazio);
+      const fmtS = (sg) => hhmm(Math.round(sg / 60));
+      const lista = vaz.map((x) => `${fmtS(x.ini)}–${x.fim >= 86400 ? "24:00" : fmtS(x.fim)}`);
+      const juntar = (a) => a.length > 1 ? a.slice(0, -1).join(", ") + " e " + a[a.length - 1] : a[0] || "";
+      const diaNome = DIAS_LONGOS[selCalc.dia - 1];
+      const horario = !vaz.length ? `Ao ${diaNome} não há vazio.`
+        : vaz.length === 1 && vaz[0].ini === 0 && vaz[0].fim >= 86400 ? `Ao ${diaNome} é vazio o dia todo.`
+        : `Vazio ao ${diaNome}: ${juntar(lista)}${selCalc.dia === 6 ? ` (horário de ${VoltCalc.lisboa(t0 + 12 * 3600000).ver ? "verão" : "inverno"})` : ""}. O preço muda a essa hora certa.`;
+      periodosHtml = `<div class="periodos">${div ? `<div>⚡ ${div}</div>` : ""}<div class="muted">${horario}</div></div>`;
+    }
     $("#k-res").innerHTML = `
-      <div class="muted" style="font-size:13px">${eAgora ? "Se começares agora" : `${DIAS_LONGOS[selCalc.dia - 1]} às ${String(selCalc.hora).padStart(2, "0")}h`} · ${p.si}% → ${p.sa}%</div>
+      <div class="muted" style="font-size:13px">${eAgora ? "Se começares agora" : `${DIAS_LONGOS[selCalc.dia - 1]} às ${hhmm(selCalc.min)}`} · ${p.si}% → ${p.sa}%</div>
       <div class="grande">${eur(l[2])}</div>
       <div class="det"><div>Duração<b>${duracao(l[3])}</b></div><div>Pronto às<b>${horaCurta(fim)}</b></div>
         <div>Energia<b>${num(l[4], 1)} kWh</b></div><div>Autonomia ganha<b>${num(l[5])} km</b></div>
-        <div>Pago ao minuto<b>${eur(l[6])}</b></div><div>Por kWh<b>${l[4] ? nf(3).format(l[2] / l[4]) + " €" : "—"}</b></div></div>`;
+        <div>Pago ao minuto<b>${eur(l[6])}</b></div><div>Média por kWh<b>${l[4] ? nf(3).format(l[2] / l[4]) + " €" : "—"}</b></div></div>
+      ${periodosHtml}`;
     // próxima ocorrência da hora mais barata, a partir de agora
     let melhor = null;
     for (let k = 0; k < 168; k++) {
@@ -504,7 +550,7 @@
       html += `<span class="d">${DIAS[d - 1]}</span>`;
       for (let h = 0; h < 24; h++) {
         const x = por.get(d * 100 + h), f = max > min ? (x[2] - min) / (max - min) : 0;
-        html += `<button class="c${d === selCalc.dia && h === selCalc.hora ? " sel" : ""}" data-dh="${d}-${h}" style="background:${corEscala(f)}" aria-label="${DIAS[d - 1]} ${h}h: ${eur(x[2])}"></button>`;
+        html += `<button class="c${d === selCalc.dia && h === Math.floor(selCalc.min / 60) ? " sel" : ""}" data-dh="${d}-${h}" style="background:${corEscala(f)}" aria-label="${DIAS[d - 1]} ${h}h: ${eur(x[2])}"></button>`;
       }
     }
     $("#k-grelha").innerHTML = html;
@@ -679,14 +725,18 @@
     $("#sheet-fav").addEventListener("click", alternarFavorito);
     $("#sheet-body").addEventListener("input", (e) => { if (e.target.id === "k-si" || e.target.id === "k-sa") agendarCalculo(); });
     $("#sheet-body").addEventListener("change", (e) => {
-      if (e.target.id === "k-dia") { selCalc.dia = +e.target.value; desenharCalc(); }
-      if (e.target.id === "k-hora") { selCalc.hora = +e.target.value; desenharCalc(); }
+      if (e.target.id === "k-dia") { selCalc.dia = +e.target.value; selCalc.agora = false; desenharCalc(); }
+      if (e.target.id === "k-hora") {
+        const [h, m] = String(e.target.value).split(":").map(Number);
+        if (Number.isFinite(h) && Number.isFinite(m)) { selCalc.min = h * 60 + m; selCalc.agora = false; desenharCalc(); }
+      }
     });
     $("#sheet-body").addEventListener("click", (e) => {
       const tb = e.target.closest("[data-tomada]"); if (tb) { selCalc.tomada = +tb.dataset.tomada; calcular(); return; }
       const c = e.target.closest("[data-dh]"); if (!c) return;
-      [selCalc.dia, selCalc.hora] = c.dataset.dh.split("-").map(Number);
-      $("#k-dia").value = selCalc.dia; $("#k-hora").value = selCalc.hora; desenharCalc();
+      const [d, h] = c.dataset.dh.split("-").map(Number);
+      Object.assign(selCalc, { dia: d, min: h * 60, agora: false });
+      $("#k-dia").value = selCalc.dia; $("#k-hora").value = hhmm(selCalc.min); desenharCalc();
     });
     // histórico: período
     $$(".filtro-datas [data-per]").forEach((b) => b.addEventListener("click", () => escolherPeriodo(b.dataset.per)));
@@ -724,7 +774,7 @@
       await carregarInicio();
       if (vista === "mapa") carregarMapa();
       if (vista === "hist") abrirHist();
-      if (postoAberto) abrirPosto(postoAberto);
+      if (postoAberto) atualizarFolha(postoAberto);
       if (forcar) toast("Atualizado.");
     } catch (e) { toast(e.message); }
   }

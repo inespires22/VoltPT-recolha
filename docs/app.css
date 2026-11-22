@@ -306,3 +306,6 @@ input[type="date"]::-webkit-calendar-picker-indicator { margin-left: 0; }
 /* a minha localização no mapa */
 .eu-pulso { animation: pulso 2s ease-out infinite; }
 @keyframes pulso { 0% { opacity: .55; } 100% { opacity: .15; } }
+.resultado .periodos { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13.5px; display: grid; gap: 4px; line-height: 1.4; }
+.resultado .periodos .muted { font-size: 12.5px; }
+.calc-box input[type="time"] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; text-align: left; line-height: 24px; }
