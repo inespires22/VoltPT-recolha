@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="VoltPT">
+<meta name="robots" content="noindex">
+<title>VoltPT</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="app.css?v=33">
+</head>
+<body>
+
+<!-- Login -->
+<section id="login" class="login" hidden>
+  <div class="login-card">
+    <div class="brand"><span class="bolt" aria-hidden="true"></span>VoltPT</div>
+    <p class="muted">Postos, custos e histórico do B10.</p>
+    <form id="login-form" autocomplete="on">
+      <label>E-mail<input id="login-email" type="email" autocomplete="username" required></label>
+      <label>Password<input id="login-pass" type="password" autocomplete="current-password" required></label>
+      <button class="btn primary" type="submit">Entrar</button>
+      <p id="login-erro" class="erro" role="alert"></p>
+    </form>
+  </div>
+</section>
+
+<!-- App -->
+<div id="app" class="app" hidden>
+  <header class="topbar">
+    <div class="brand small"><span class="bolt" aria-hidden="true"></span>VoltPT</div>
+    <button id="frescura" class="frescura" type="button" aria-label="Atualizar dados">
+      <span class="dot"></span><span id="frescura-txt">…</span>
+    </button>
+  </header>
+
+  <main>
+    <!-- Início -->
+    <section id="v-inicio" class="view">
+      <div class="col-a">
+      <div id="hero" class="hero esqueleto"></div>
+      <div id="ind-inicio" class="indicadores so-pc"></div>
+      </div>
+      <div class="col-b">
+      <div id="alertas-box"></div>
+      <div class="sec-linha"><h2 class="sec">★ Favoritos</h2><button class="link" data-ir="favs">Ver no mapa ›</button></div>
+      <div id="meus-postos" class="cards"></div>
+      <div id="ultimo-box"></div>
+      <p class="nota" id="nota-estado"></p>
+      </div>
+    </section>
+
+    <!-- Mapa -->
+    <section id="v-mapa" class="view view-mapa" hidden>
+      <div id="map" class="map" role="region" aria-label="Mapa de postos"></div>
+      <div class="map-chips" role="group" aria-label="Filtros">
+        <button class="chip" data-f="livres" aria-pressed="false">🟢 Só livres</button>
+        <button class="chip" data-f="dc" aria-pressed="false">⚡ Rápidos</button>
+        <button class="chip" data-f="ac" aria-pressed="false">🔌 AC</button>
+        <button class="chip" data-f="fav" aria-pressed="false">★ Favoritos</button>
+      </div>
+      <button id="btn-gps" class="fab" type="button" aria-label="A minha localização">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+      <div id="map-aviso" class="map-aviso" hidden></div>
+      <div id="map-resumo" class="map-resumo" hidden></div>
+      <div class="legenda">
+        <span><i class="st st-Livre"></i>Livre</span><span><i class="st st-Ocupado"></i>Ocupado</span>
+        <span><i class="st st-Avariado"></i>Avariado</span><span><i class="st st-Sem"></i>Sem dados</span>
+      </div>
+    </section>
+
+
+    <!-- Histórico -->
+    <section id="v-hist" class="view" hidden>
+      <div class="col-a">
+      <div class="filtro-datas">
+        <div class="chips-wrap" role="group" aria-label="Período">
+          <button class="chip" data-per="mes">Este mês</button>
+          <button class="chip" data-per="mes-1">Mês passado</button>
+          <button class="chip" data-per="ano">Este ano</button>
+          <button class="chip" data-per="tudo">Tudo</button>
+        </div>
+        <div class="linha2">
+          <label class="campo">De<input id="h-de" type="date"></label>
+          <label class="campo">Até<input id="h-ate" type="date"></label>
+        </div>
+      </div>
+      <div class="h-esq">
+      <div id="h-hero" class="hero hero-hist"></div>
+      <span id="h-titulo" hidden></span>
+      <div id="h-din" class="cartao din"></div>
+      </div>
+      <div class="h-dir">
+      <div class="comb">
+        <div id="h-comb"></div>
+        <details class="comb-aj">
+          <summary>Mudar o carro de comparação</summary>
+          <div class="linha2">
+            <label class="campo">Combustível<select id="p-tipo"><option value="gasolina">Gasolina</option><option value="gasoleo">Gasóleo</option></select></label>
+            <label class="campo">Gasta (L/100 km)<input id="p-consumo" type="number" step="0.1" min="2" max="15" inputmode="decimal"></label>
+          </div>
+          <label class="campo">Preço por litro (€)<input id="p-preco" type="number" step="0.01" min="0.5" max="3" inputmode="decimal"></label>
+        </details>
+      </div>
+      <div id="h-postos" class="cartao"></div>
+      </div>
+      </div>
+      <div class="col-b">
+      <h3 class="sec2" id="h-lista-tit">Carregamentos</h3>
+      <div id="h-lista" class="lista"></div>
+      </div>
+    </section>
+
+    <!-- Mais -->
+    <section id="v-viagem" class="view" hidden>
+      <div class="col-a">
+      <!-- Planear viagem -->
+      <div class="hero hero-mini">
+        <div class="h-top"><span>🧭 Planear viagem</span></div>
+        <p class="h-sub" style="margin:6px 0 12px">Diz de onde sais e para onde vais: eu digo onde parar a carregar e quanto custa.</p>
+        <div class="rota-campos">
+          <div class="rota-campo"><label for="v-origem">De</label>
+            <input id="v-origem" type="text" placeholder="📍 A minha localização" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="next" role="combobox" aria-expanded="false" aria-controls="sug-origem">
+            <ul id="sug-origem" class="sugestoes" role="listbox" hidden></ul></div>
+          <div class="rota-campo"><label for="v-destino">Para</label>
+            <input id="v-destino" type="text" placeholder="Rua, localidade, sítio…" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" role="combobox" aria-expanded="false" aria-controls="sug-destino">
+            <ul id="sug-destino" class="sugestoes" role="listbox" hidden></ul></div>
+        </div>
+      </div>
+      <div class="cartao">
+        <div class="linha2">
+          <label class="campo">Bateria à saída (%)<input id="v-soc" type="number" min="10" max="100" step="1" value="90" inputmode="numeric"></label>
+          <label class="campo">Chegar ao destino com (%)<input id="v-fim" type="number" min="5" max="80" step="1" value="20" inputmode="numeric"></label>
+        </div>
+        <div class="campo"><span>Calcular o consumo com</span>
+          <div class="seg" role="radiogroup" aria-label="Calcular o consumo com">
+            <button type="button" role="radio" data-modo="media" aria-checked="true">A nossa média</button>
+            <button type="button" role="radio" data-modo="vel" aria-checked="false">A velocidade</button>
+          </div></div>
+        <label class="campo" id="campo-cons">A nossa média (kWh/100 km)<input id="v-cons" type="number" min="10" max="35" step="0.1" inputmode="decimal"></label>
+        <label class="campo" id="campo-vel" hidden>Velocidade média (km/h)<input id="v-vel" type="number" min="40" max="140" step="1" inputmode="numeric" value="110"></label>
+        <p class="nota" id="v-explica" style="margin:-4px 2px 12px"></p>
+        <label class="campo campo-saida">Saída (dia e hora)<input id="v-hora" type="datetime-local" step="60"></label>
+        <button id="v-calcular" class="btn primary full" type="button">Calcular paragens</button>
+        <p id="v-erro" class="calc-erro" role="alert"></p>
+      </div>
+      </div>
+      <div class="col-b">
+      <div id="v-vazio" class="vazio-msg so-pc">🗺️ O mapa e as paragens aparecem aqui depois de carregares em <b>Calcular paragens</b>.</div>
+      <div id="v-out" hidden>
+        <div id="v-res" class="kpis"></div>
+        <div id="viagem-mapa" class="mapa-viagem" role="region" aria-label="Mapa da viagem"></div>
+        <div id="v-paragens" class="paragens"></div>
+        <a id="v-gmaps" class="btn full" target="_blank" rel="noopener">🧭 Abrir a rota no Google Maps</a>
+        <p class="nota" id="v-nota"></p>
+      </div>
+      </div>
+    </section>
+
+    <section id="v-mais" class="view" hidden>
+      <!-- Avisos -->
+      <div class="cartao">
+        <h2 class="cartao-tit">🔔 Avisos de posto livre</h2>
+        <div id="ntfy-box"></div>
+      </div>
+
+      <!-- Conta -->
+      <div class="cartao">
+        <h2 class="cartao-tit">👤 Conta</h2>
+        <p class="nota" id="conta-info" style="margin-top:0"></p>
+        <button id="btn-sair" class="btn full" type="button">Sair</button>
+      </div>
+      <p class="creditos">Estados: NAP Portugal (IMT) / MOBI.E · Mapa e moradas: © OpenStreetMap · Rotas: OSRM.</p>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Secções">
+    <button data-v="inicio" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z"/></svg>Início</button>
+    <button data-v="mapa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>Mapa</button>
+    <button data-v="viagem"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="5" r="2.2"/><path d="M8.2 19H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.8"/></svg>Viagem</button>
+    <button data-v="hist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M7 16v-5M12 16V7M17 16v-8"/></svg>Histórico</button>
+    <button data-v="mais"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>Mais</button>
+  </nav>
+
+  <!-- Folha de detalhe do posto -->
+  <div id="sheet-bg" class="sheet-bg" hidden></div>
+  <aside id="sheet" class="sheet" hidden aria-modal="true" role="dialog" aria-labelledby="s-nome">
+    <div class="sheet-topo">
+      <div class="grip" aria-hidden="true"></div>
+      <button id="sheet-fav" class="fechar fav" type="button" aria-label="Marcar como favorito" aria-pressed="false">☆</button>
+      <button id="sheet-fechar" class="fechar" type="button" aria-label="Fechar">✕</button>
+    </div>
+    <div id="sheet-body"></div>
+  </aside>
+  <div id="toast" class="toast" role="status" hidden></div>
+</div>
+
+<script src="config.js?v=33"></script>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="calc.js?v=33"></script>
+<script src="app.js?v=33"></script>
+</body>
+</html>
