@@ -82,7 +82,7 @@
     return j;
   }
   function sair() {
-    store.del("sessao"); sessao = null; dados = {};
+    store.del("sessao"); store.del("cache"); sessao = null; dados = {};
     $("#app").hidden = true; $("#login").hidden = false;
   }
 
@@ -103,11 +103,21 @@
   }
 
   // ------------------------------------------------------------------ início
+  // Os últimos dados ficam guardados no telemóvel: a página abre logo com eles e atualiza a seguir.
+  const guardarCache = () => store.set("cache", { inicio: dados.inicio || null, hist: dados.hist || null });
+  let histEm = 0;
+  function carregarHistorico() {
+    return rpc("voltpt_historico").then((h) => {
+      dados.hist = h; histEm = Date.now(); guardarCache();
+      if (dados.inicio) desenharInicio();
+      if (vista === "hist") desenharHist();
+    });
+  }
   async function carregarInicio() {
-    const [ini, hist] = await Promise.all([rpc("voltpt_inicio"), rpc("voltpt_historico").catch(() => null)]);
-    dados.inicio = ini; if (hist) dados.hist = hist;
+    const h = carregarHistorico().catch(() => {});      // em paralelo; não atrasa o Início
+    dados.inicio = await rpc("voltpt_inicio"); guardarCache();
     desenharFrescura(); desenharInicio();
-    if (vista === "hist") desenharHist();
+    return h;
   }
   function desenharFrescura() {
     const i = dados.inicio; if (!i) return;
@@ -143,7 +153,8 @@
   const nomeMes = (k, ano) => { const [a, m] = k.split("-"); return new Date(+a, +m - 1, 1).toLocaleDateString("pt-PT", ano ? { month: "long", year: "numeric" } : { month: "long" }); };
 
   function desenharInicio() {
-    const i = dados.inicio, h = dados.hist;
+    const i = dados.inicio, h = dados.hist; if (!i) return;
+    $("#hero").classList.remove("esqueleto");
     const todos = h?.carregamentos || [];
     const mesAtual = diaLisboa(new Date().toISOString()).slice(0, 7);
     const doMes = todos.filter((c) => diaLisboa(c.inicio).startsWith(mesAtual));
@@ -164,13 +175,17 @@
       <div class="h-sub">${t.n ? `${num(t.n)} carregamento${t.n === 1 ? "" : "s"} · ${num(t.kwh, 1)} kWh${t.km ? ` · ≈ ${num(t.km)} km` : ""}` : "Ainda não carregaste este mês"}</div>
       ${t.n ? `<div class="h-chips">
         ${t.kwh ? `<span class="h-chip">${nf(3).format(t.custo / t.kwh)} €/kWh</span>` : ""}
-        ${t.km && cmp.poupado > 0 ? `<span class="h-chip">⛽ poupaste ${eur(cmp.poupado)} vs ${cmp.nome}</span>` : ""}
       </div>` : ""}
+      ${t.n && t.km ? `<button class="h-comb" data-ir="comb">
+        <span class="h-comb-v">⛽ ${cmp.poupado >= 0 ? `Poupaste <b>${eur(cmp.poupado)}</b>` : `Gastaste mais <b>${eur(-cmp.poupado)}</b>`} vs um carro a ${cmp.nome}</span>
+        <span class="h-comb-c">Carro que gasta ${nf(1).format(par.consumo)} L/100 km, ${cmp.nome} a ${nf(2).format(par.preco)} €/L · ${num(cmp.litros)} L para os mesmos ${num(t.km)} km · mudar ›</span>
+      </button>` : ""}
       ${h ? `<div class="h-barras" style="grid-template-columns:repeat(${Math.max(meses.length, 3)},1fr)" aria-label="Gasto nos últimos 6 meses">${meses.map((m, k) => `
-        <div class="h-b${k === meses.length - 1 ? " atual" : ""}" title="${esc(nomeMes(m, true))}: ${eur(porMes[k])}">
+        <button class="h-b${k === meses.length - 1 ? " atual" : ""}" data-mes="${m}" aria-label="Ver ${esc(nomeMes(m, true))} no Histórico: ${eur(porMes[k])}">
           <span class="h-bv">${porMes[k] ? Math.round(porMes[k]) + "€" : ""}</span>
           <i style="height:${Math.max(4, 100 * porMes[k] / max).toFixed(0)}%"></i>
-          <span class="h-bl">${esc(nomeMes(m).slice(0, 3))}</span></div>`).join("")}</div>` : ""}`;
+          <span class="h-bl">${esc(nomeMes(m).slice(0, 3))}</span></button>`).join("")}</div>
+      <div class="h-dica">Toca num mês para ver os carregamentos</div>` : ""}`;
 
     const mp = i.meus_postos || [];
     $("#meus-postos").innerHTML = mp.length ? mp.map(cartaoPosto).join("")
@@ -580,7 +595,10 @@
   }
   async function abrirHist() {
     for (const k of Object.keys(PAR_DEF)) $("#p-" + k).value = par[k];
-    try { dados.hist = await rpc("voltpt_historico"); desenharHist(); } catch (e) { toast(e.message); }
+    desenharHist();                                        // já com o que há (ou "a carregar")
+    if (!dados.hist || Date.now() - histEm > 60000) {
+      try { await carregarHistorico(); } catch (e) { if (!dados.hist) toast(e.message); }
+    }
   }
   function escolherPeriodo(per) {
     filtroH.per = per;
@@ -588,7 +606,8 @@
     desenharHist();
   }
   function desenharHist() {
-    const h = dados.hist; if (!h) return;
+    const h = dados.hist;
+    if (!h) { $("#h-kpis").innerHTML = `<div class="kpi esqueleto"></div>`.repeat(4); return; }
     if (filtroH.per !== "custom") [filtroH.de, filtroH.ate] = intervalo(filtroH.per);
     $$(".filtro-datas [data-per]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.per === filtroH.per ? "true" : "false"));
     $("#h-de").value = filtroH.de; $("#h-ate").value = filtroH.ate;
@@ -700,10 +719,23 @@
     window.addEventListener("popstate", () => { if (!$("#sheet").hidden) fecharPosto(); });
     document.addEventListener("click", (e) => {
       const card = e.target.closest("[data-posto]"); if (card) return abrirPosto(card.dataset.posto);
+      const bm = e.target.closest("[data-mes]");
+      if (bm) {                                  // barra do Início -> esse mês no Histórico
+        const [a, m] = bm.dataset.mes.split("-").map(Number);
+        const atual = diaLisboa(new Date().toISOString()).slice(0, 7) === bm.dataset.mes;
+        filtroH = atual ? { per: "mes", de: "", ate: "" }
+          : { per: "custom", de: isoDia(new Date(a, m - 1, 1)), ate: isoDia(new Date(a, m, 0)) };
+        mostrar("hist"); return;
+      }
       const ir = e.target.closest("[data-ir]");
       if (ir) {
         const d = ir.dataset.ir;
         if (d === "favs") { filtros.fav = true; store.set("filtros", filtros); $$(".map-chips .chip").forEach((x) => x.setAttribute("aria-pressed", filtros[x.dataset.f] ? "true" : "false")); }
+        if (d === "comb") {
+          mostrar("hist");
+          setTimeout(() => { const aj = $(".comb-aj"); aj.open = true; $(".comb").scrollIntoView({ behavior: "smooth", block: "start" }); }, 60);
+          return;
+        }
         mostrar(d === "viagem" ? "mais" : d === "favs" ? "mapa" : d);
         if (d === "mapa") setTimeout(() => localizar(true, true), 120);
         return;
@@ -773,7 +805,6 @@
     try {
       await carregarInicio();
       if (vista === "mapa") carregarMapa();
-      if (vista === "hist") abrirHist();
       if (postoAberto) atualizarFolha(postoAberto);
       if (forcar) toast("Atualizado.");
     } catch (e) { toast(e.message); }
@@ -781,9 +812,11 @@
 
   async function arrancar() {
     $("#login").hidden = true; $("#app").hidden = false;
+    const c = store.get("cache", null);
+    if (c && c.inicio) { dados.inicio = c.inicio; dados.hist = c.hist || null; desenharFrescura(); desenharInicio(); }
+    mostrar(vista);
     try { await carregarInicio(); ultimaAtualizacao = Date.now(); }
     catch (e) { if (!sessao) return; toast(e.message, 5000); }
-    mostrar(vista);
     clearInterval(arrancar._i);
     arrancar._i = setInterval(() => { if (!document.hidden && sessao) atualizarTudo(false); }, 120000);
   }
