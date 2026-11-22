@@ -138,6 +138,8 @@
       <span class="livres">${esc(livres)}</span></span>
     </button>`;
   }
+  // rápido (DC)? pelo posto ou, se o posto não está ligado, pela potência média (> 25 kW)
+  const ehDC = (c) => c.tipo === "DC" || (c.min > 0 && c.kwh / (c.min / 60) > 25);
   // totais de um conjunto de carregamentos (o Início e o Histórico contam da mesma forma)
   function somar(lista) {
     const t = { n: lista.length, custo: 0, kwh: 0, km: 0, tempo: 0, tar_fv: 0 };
@@ -190,6 +192,23 @@
           <span class="h-bl">${esc(nomeMes(m).slice(0, 3))}</span></button>`).join("")}</div>
 ` : ""}`;
 
+    // indicadores do mês escolhido (no computador, ao lado do cartão)
+    const ant = (() => { const [y, m] = mesVer.split("-").map(Number); return isoDia(new Date(y, m - 2, 1)).slice(0, 7); })();
+    const tAnt = somar(todos.filter((c) => diaLisboa(c.inicio).startsWith(ant)));
+    const minutos = doMes.reduce((a, c) => a + (+c.min || 0), 0), vazios = doMes.filter((c) => c.so_vazio).length;
+    const rapidos = doMes.filter(ehDC).length;
+    const pkAnt = tAnt.kwh ? tAnt.custo / tAnt.kwh : null, pk = t.kwh ? t.custo / t.kwh : null;
+    const dif = pk && pkAnt ? (pk / pkAnt - 1) * 100 : null;
+    const ind = (ic, v, l, extra = "") => `<div class="ind"><span class="ind-ic">${ic}</span><div><div class="ind-v">${v}</div><div class="ind-l">${l}</div>${extra}</div></div>`;
+    $("#ind-inicio").innerHTML = !t.n ? "" : `<h2 class="sec">${esc(titulo[0].toUpperCase() + titulo.slice(1))} em números</h2><div class="ind-grelha">
+      ${ind("⚡", `${num(t.kwh, 1)} kWh`, "energia carregada")}
+      ${ind("🛣️", `≈ ${num(t.km)} km`, "de autonomia ganha")}
+      ${ind("🏷️", pk ? `${nf(3).format(pk)} €` : "—", "por kWh", dif != null ? `<div class="ind-x ${dif <= 0 ? "bom" : "mau"}">${dif <= 0 ? "▼" : "▲"} ${num(Math.abs(dif))} % vs ${esc(nomeMes(ant))}</div>` : "")}
+      ${ind("💶", t.km ? eur(t.custo / t.km * 100) : "—", "por cada 100 km")}
+      ${ind("⏱️", duracao(minutos), "ligado a carregar", rapidos ? `<div class="ind-x">${num(rapidos)} em posto rápido</div>` : "")}
+      ${ind("🌙", `${num(vazios)} de ${num(t.n)}`, "só em vazio")}
+    </div>`;
+
     const mp = i.meus_postos || [];
     $("#meus-postos").innerHTML = mp.length ? mp.map(cartaoPosto).join("")
       : `<div class="vazio-msg">Ainda não tens favoritos. No Mapa, abre um posto e toca na ☆ ao lado do ✕.</div>`;
@@ -199,7 +218,7 @@
     const u = todos[0];
     $("#ultimo-box").innerHTML = u ? `<h2 class="sec">Último carregamento</h2>
       <div class="ultimo">
-        <div class="u-ic" aria-hidden="true">${u.tipo === "DC" ? "⚡" : "🔌"}</div>
+        <div class="u-ic${ehDC(u) ? " dc" : ""}" aria-hidden="true">${ehDC(u) ? "⚡" : "🔌"}</div>
         <div class="u-corpo"><div class="u-nome">${esc(u.posto)}</div>
           <div class="u-sub">${haQuanto(u.inicio)} · ${num(u.kwh, 1)} kWh · ${duracao(u.min)}${u.so_vazio ? " · em vazio" : ""}</div></div>
         <div class="u-val">${eur(u.custo)}<small>${u.kwh ? nf(3).format(u.custo / u.kwh) + " €/kWh" : ""}</small></div>
@@ -210,6 +229,61 @@
   const kpi = (v, l, cls = "") => `<div class="kpi ${cls}"><div class="v">${v}</div><div class="l">${esc(l)}</div></div>`;
 
   // ------------------------------------------------------------------ mapa
+  // Fundo do mapa: OpenFreeMap (mapa vetorial moderno, gratuito e sem chave), desenhado pelo
+  // MapLibre por baixo do Leaflet e acompanhando-o. Começa com o OpenStreetMap de sempre e troca
+  // quando o vetorial estiver pronto; se não der (sem WebGL, sem rede), fica o OpenStreetMap.
+  const ML_VER = "4.7.1";
+  let mlPromessa = null;
+  function carregarMapLibre() {
+    if (window.maplibregl) return Promise.resolve(window.maplibregl);
+    if (!mlPromessa) mlPromessa = new Promise((ok, ko) => {
+      const css = document.createElement("link");
+      css.rel = "stylesheet"; css.href = `https://unpkg.com/maplibre-gl@${ML_VER}/dist/maplibre-gl.css`;
+      document.head.appendChild(css);
+      const sc = document.createElement("script");
+      sc.src = `https://unpkg.com/maplibre-gl@${ML_VER}/dist/maplibre-gl.js`;
+      sc.onload = () => (window.maplibregl ? ok(window.maplibregl) : ko(new Error("MapLibre")));
+      sc.onerror = () => ko(new Error("MapLibre"));
+      document.head.appendChild(sc);
+      setTimeout(() => ko(new Error("MapLibre demorou")), 12000);
+    });
+    return mlPromessa;
+  }
+  function fundoMapa(map, escuro) {
+    const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
+    carregarMapLibre().then((ml) => {
+      const el = map.getContainer(), caixa = document.createElement("div");
+      caixa.className = "fundo-vetorial"; el.insertBefore(caixa, el.firstChild);
+      const c = map.getCenter();
+      let gl, pronto = false;
+      try {
+        gl = new ml.Map({ container: caixa, style: `https://tiles.openfreemap.org/styles/${escuro ? "dark" : "positron"}`,
+                          center: [c.lng, c.lat], zoom: map.getZoom() - 1, interactive: false, attributionControl: false, fadeDuration: 0 });
+      } catch { caixa.remove(); return; }                       // sem WebGL: fica o OpenStreetMap
+      const desistir = () => { if (pronto) return; try { gl.remove(); } catch { /* */ } caixa.remove(); };
+      gl.on("load", () => {
+        pronto = true; el.classList.add("com-vetorial"); map.removeLayer(osm);
+        map.attributionControl.addAttribution('<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> · © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>');
+        acompanhar();
+      });
+      gl.on("error", () => { if (!pronto) desistir(); });
+      setTimeout(desistir, 12000);
+      // o Leaflet usa mosaicos de 256 px e o MapLibre de 512: o zoom do MapLibre é um a menos
+      const acompanhar = () => { const p = map.getCenter(); gl.jumpTo({ center: [p.lng, p.lat], zoom: map.getZoom() - 1 }); };
+      map.on("move zoom viewreset", acompanhar);
+      map.on("zoomanim", (e) => gl.easeTo({ center: [e.center.lng, e.center.lat], zoom: e.zoom - 1, duration: 250, easing: (t) => 1 - (1 - t) * (1 - t) }));
+      map.on("resize", () => { gl.resize(); acompanhar(); });
+    }).catch(() => { /* fica o OpenStreetMap */ });
+  }
+  // pinos dos postos: cor = estado; ⚡ = rápido (DC); estrela = favorito
+  const SVG_RAIO = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12z" fill="currentColor"/></svg>';
+  const SVG_FICHA = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
+  function pinoPosto(p) {
+    const dc = /DC/.test(p[8]) && p[7] >= 40, t = p[7] >= 150 ? 32 : dc ? 28 : 24;
+    return L.divIcon({ className: "", iconSize: [t, t], iconAnchor: [t / 2, t / 2],
+      html: `<span class="pp pp-${estadoClasse(p[4])}${p[11] ? " fav" : ""}" style="width:${t}px;height:${t}px">${dc ? SVG_RAIO : SVG_FICHA}</span>` });
+  }
   let mapa, camada, filtros = store.get("filtros", {}), pedidoMapa = 0, ultimoMapa = [];
   const COR = () => {
     const cs = getComputedStyle(document.documentElement);
@@ -222,11 +296,7 @@
       const escuro = matchMedia("(prefers-color-scheme: dark)").matches;
       const centro = store.get("mapa", { lat: 38.706, lon: -8.962, z: 14 });
       mapa = L.map("map", { zoomControl: false, attributionControl: true }).setView([centro.lat, centro.lon], centro.z);
-      // OpenStreetMap: gratuito, sem chave (uso pessoal, com atribuição). No modo escuro, a página escurece-o.
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      }).addTo(mapa);
+      fundoMapa(mapa, escuro);
       document.getElementById("map").classList.toggle("escuro", escuro);
       camada = L.layerGroup().addTo(mapa);
       let t; mapa.on("moveend", () => {
@@ -289,12 +359,13 @@
       (!filtros.dc || /DC/.test(p[8]) && p[7] >= 40) &&
       (!filtros.ac || /AC/.test(p[8])) &&
       (!filtros.fav || p[11]));
+    const muitos = lista.length > 500;          // muitos postos: pontos simples (mais leve no telemóvel)
     for (const p of lista.slice().reverse()) {
       const kw = p[7] || 0, raio = kw >= 150 ? 10 : kw >= 50 ? 8.5 : 7;
-      const m = L.circleMarker([p[2], p[3]], {
+      const m = muitos ? L.circleMarker([p[2], p[3]], {
         radius: p[11] ? raio + 2 : raio, weight: p[11] ? 3 : 1.5, color: p[11] ? cor.meu : cor.borda,
         fillColor: cor[estadoClasse(p[4])], fillOpacity: 0.95,
-      });
+      }) : L.marker([p[2], p[3]], { icon: pinoPosto(p), riseOnHover: true, zIndexOffset: p[11] ? 500 : 0 });
       m.on("click", () => abrirPosto(p[0]));
       m.bindTooltip(`${esc(p[1])} · ${esc(estadoTexto(p[4]))}`, { direction: "top", offset: [0, -6] });
       camada.addLayer(m);
@@ -373,7 +444,7 @@
       ${meus}
       <div class="acoes">
         ${alerta}
-        <a class="btn" href="${navegar}" target="_blank" rel="noopener">🧭 Ir para lá</a>
+        <a class="btn full" href="${navegar}" target="_blank" rel="noopener">🧭 Ir para lá</a>
         <button class="btn full danger" data-acao="denunciar">🚫 Lugar ocupado por quem não carrega</button>
       </div>`;
   }
@@ -619,7 +690,7 @@
   }
   function desenharHist() {
     const h = dados.hist;
-    if (!h) { $("#h-hero").innerHTML = ""; $("#h-hero").classList.add("esqueleto"); $("#h-kpis").innerHTML = `<div class="kpi esqueleto"></div>`.repeat(2); return; }
+    if (!h) { $("#h-hero").innerHTML = ""; $("#h-hero").classList.add("esqueleto"); $("#h-din").innerHTML = ""; return; }
     $("#h-hero").classList.remove("esqueleto");
     if (filtroH.per !== "custom") [filtroH.de, filtroH.ate] = intervalo(filtroH.per);
     $$(".filtro-datas [data-per]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.per === filtroH.per ? "true" : "false"));
@@ -637,9 +708,24 @@
       <div class="h-sub">${t.n ? `${num(t.n)} carregamento${t.n === 1 ? "" : "s"} · ${num(t.kwh, 1)} kWh · ≈ ${num(t.km)} km` : "Sem carregamentos neste período"}</div>
       ${t.n ? `<div class="h-chips">${t.kwh ? `<span class="h-chip">${nf(3).format(t.custo / t.kwh)} €/kWh</span>` : ""}
         ${t.km ? `<span class="h-chip">${eur(t.custo / t.km * 100)} / 100 km</span>` : ""}</div>` : ""}`;
-    $("#h-kpis").innerHTML = !t.n ? "" :
-      kpi(t.custo ? num(100 * t.tempo / t.custo) + " %" : "—", "do custo foi tempo (ao minuto)") +
-      kpi(eur(t.tar_fv * 0.78), "a menos se carregasses só em vazio");
+    // para onde foi o dinheiro (no período escolhido)
+    const parte = { energia: 0, tempo: 0, fixo: 0, taxas: 0 };
+    for (const c of lista) for (const k in parte) parte[k] += +c[k] || 0;
+    const totP = Object.values(parte).reduce((a, b) => a + b, 0) || 1;
+    const partes = [["energia", "c-energia", "Energia e redes (TAR)", "o que a eletricidade custa"],
+                    ["tempo", "c-tempo", "Tempo ligado ao posto", "o operador cobra ao minuto"],
+                    ["fixo", "c-fixo", "Ativação", "valor fixo por carregamento"],
+                    ["taxas", "c-taxas", "Taxas", "EGME e imposto"]];
+    const vazio = lista.filter((c) => c.so_vazio).length, poupaVazio = t.tar_fv * 0.78;
+    $("#h-din").innerHTML = !t.n ? `<p class="nota" style="margin:0">Sem carregamentos neste período.</p>` : `
+      <h2 class="cartao-tit">Para onde foi o dinheiro</h2>
+      <div class="barra din-barra">${partes.map(([k, cls]) => `<i class="${cls}" style="width:${(100 * parte[k] / totP).toFixed(1)}%"></i>`).join("")}</div>
+      <div class="din-linhas">${partes.map(([k, cls, nome, sub]) => `<div class="din-l"><i class="${cls}"></i>
+        <span><b>${nome}</b><small>${sub}</small></span><span class="din-v">${eur(parte[k])}<small>${num(100 * parte[k] / totP)} %</small></span></div>`).join("")}</div>
+      <div class="din-dicas">
+        <div>🌙 <b>${num(vazio)} de ${num(t.n)}</b> carregamento${t.n === 1 ? "" : "s"} só em vazio${poupaVazio >= 0.5 ? ` · só em vazio pagavas menos <b>${eur(poupaVazio)}</b>` : ""}.</div>
+        ${t.custo && t.tempo / t.custo >= 0.2 ? `<div>⏱️ <b>${num(100 * t.tempo / t.custo)} %</b> foi tempo ligado: tirar o carro logo que acaba poupa.</div>` : ""}
+      </div>`;
     const maior = Math.max(cmp.custo, t.custo, 0.01);
     $("#h-comb").innerHTML = !t.n || !t.km ? `<p class="nota" style="margin:0">Sem quilómetros neste período para comparar.</p>` : `
       <div class="comb-tit">E se fosse um carro a ${esc(cmp.nome)}?</div>
@@ -651,29 +737,13 @@
       <p class="comb-txt">Para fazer os mesmos ≈ ${num(t.km)} km, um carro a ${esc(cmp.nome)} gastava ≈ ${num(cmp.litros)} L.</p>
       <p class="comb-txt">🌱 Esse carro teria deitado <b>≈ ${num(cmp.co2)} kg de CO₂</b> para o ar; o teu não deitou nenhum pelo escape.</p>
       <p class="nota" style="margin:8px 0 0">Conta feita com ${nf(1).format(par.consumo)} L/100 km e ${esc(cmp.nome)} a ${nf(2).format(par.preco)} €/L.</p>`;
-    // por mês (dentro do período)
-    const meses = new Map();
-    for (const c of lista) {
-      const k = diaLisboa(c.inicio).slice(0, 7);
-      const m = meses.get(k) || { n: 0, custo: 0, kwh: 0, km: 0, fixo: 0, tempo: 0, energia: 0, taxas: 0 };
-      m.n++; for (const f of ["custo", "kwh", "km", "fixo", "tempo", "energia", "taxas"]) m[f] += +c[f] || 0;
-      meses.set(k, m);
-    }
-    $("#h-meses").innerHTML = meses.size ? [...meses.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([k, m]) => {
-      const tot = (m.fixo + m.tempo + m.energia + m.taxas) || 1;
-      const seg = (v, c) => `<i class="${c}" style="width:${(100 * v / tot).toFixed(1)}%"></i>`;
-      const [a, mm] = k.split("-");
-      const nome = new Date(+a, +mm - 1, 1).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
-      return `<div class="mes"><div class="topo"><span>${esc(nome)}</span><span>${eur(m.custo)}</span></div>
-        <div class="barra">${seg(m.fixo, "c-fixo")}${seg(m.tempo, "c-tempo")}${seg(m.energia, "c-energia")}${seg(m.taxas, "c-taxas")}</div>
-        <div class="leg"><span><i class="c-energia"></i>Energia+TAR ${eur(m.energia)}</span><span><i class="c-tempo"></i>Minutos ${eur(m.tempo)}</span>
-        <span><i class="c-fixo"></i>Ativação ${eur(m.fixo)}</span><span><i class="c-taxas"></i>Taxas ${eur(m.taxas)}</span></div>
-        <div class="nota" style="margin:6px 0 0">${num(m.n)} carregamentos · ${num(m.kwh, 1)} kWh · ≈ ${num(m.km)} km</div></div>`;
-    }).join("") : `<div class="vazio-msg">Sem carregamentos neste período.</div>`;
-    $("#h-lista").innerHTML = lista.length ? lista.map((c) => `<div class="sessao">
-        <span class="s-ic${c.tipo === "DC" ? " dc" : ""}" aria-hidden="true">${c.tipo === "DC" ? "⚡" : "🔌"}</span>
+    const cab = `<div class="sessao cab"><span></span><span>Posto</span><span>Início</span><span>Energia</span><span>Duração</span><span>Autonomia</span><span class="s-val">Custo</span></div>`;
+    $("#h-lista").innerHTML = lista.length ? cab + lista.map((c) => `<div class="sessao">
+        <span class="s-ic${ehDC(c) ? " dc" : ""}" aria-hidden="true">${ehDC(c) ? "⚡" : "🔌"}</span>
         <div class="s-corpo"><div class="s1">${esc(c.posto)}${c.so_vazio ? '<span class="tag">vazio</span>' : ""}</div>
           <div class="s2">${dataCurta(c.inicio)} ${horaCurta(c.inicio)} · ${num(c.kwh, 1)} kWh · ${duracao(c.min)} · ≈ ${num(c.km)} km</div></div>
+        <span class="s-col">${dataCurta(c.inicio)} ${horaCurta(c.inicio)}</span><span class="s-col">${num(c.kwh, 1)} kWh</span>
+        <span class="s-col">${duracao(c.min)}</span><span class="s-col">≈ ${num(c.km)} km</span>
         <div class="s-val">${eur(c.custo)}<small>${c.kwh ? nf(3).format(c.custo / c.kwh) + " €/kWh" : ""}</small></div></div>`).join("")
       : `<div class="vazio-msg">Sem carregamentos neste período.</div>`;
   }
@@ -937,7 +1007,7 @@
     // mapa
     if (!mapaV) {
       mapaV = L.map("viagem-mapa", { zoomControl: false, attributionControl: true, scrollWheelZoom: false });
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapaV);
+      fundoMapa(mapaV, matchMedia("(prefers-color-scheme: dark)").matches);
       camadaV = L.layerGroup().addTo(mapaV);
     }
     camadaV.clearLayers();

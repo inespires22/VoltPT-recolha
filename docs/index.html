@@ -13,7 +13,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="app.css?v=24">
+<link rel="stylesheet" href="app.css?v=28">
 </head>
 <body>
 
@@ -45,11 +45,7 @@
     <section id="v-inicio" class="view">
       <div class="col-a">
       <div id="hero" class="hero esqueleto"></div>
-      <div class="atalhos">
-        <button class="atalho" data-ir="mapa"><span class="ic">📍</span>Perto de mim</button>
-        <button class="atalho" data-ir="viagem"><span class="ic">🧭</span>Planear viagem</button>
-        <button class="atalho" data-ir="hist"><span class="ic">📊</span>Histórico</button>
-      </div>
+      <div id="ind-inicio" class="indicadores so-pc"></div>
       </div>
       <div class="col-b">
       <div id="alertas-box"></div>
@@ -88,7 +84,6 @@
         <div class="chips-wrap" role="group" aria-label="Período">
           <button class="chip" data-per="mes">Este mês</button>
           <button class="chip" data-per="mes-1">Mês passado</button>
-          <button class="chip" data-per="3m">3 meses</button>
           <button class="chip" data-per="ano">Este ano</button>
           <button class="chip" data-per="tudo">Tudo</button>
         </div>
@@ -99,7 +94,7 @@
       </div>
       <div id="h-hero" class="hero hero-hist"></div>
       <span id="h-titulo" hidden></span>
-      <div id="h-kpis" class="kpis"></div>
+      <div id="h-din" class="cartao din"></div>
       <div class="comb">
         <div id="h-comb"></div>
         <details class="comb-aj">
@@ -113,8 +108,6 @@
       </div>
       </div>
       <div class="col-b">
-      <h3 class="sec2" id="h-meses-tit">Por mês</h3>
-      <div id="h-meses" class="meses"></div>
       <h3 class="sec2" id="h-lista-tit">Carregamentos</h3>
       <div id="h-lista" class="lista"></div>
       </div>
@@ -204,9 +197,9 @@
   <div id="toast" class="toast" role="status" hidden></div>
 </div>
 
-<script src="config.js?v=24"></script>
+<script src="config.js?v=28"></script>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="calc.js?v=24"></script>
-<script src="app.js?v=24"></script>
+<script src="calc.js?v=28"></script>
+<script src="app.js?v=28"></script>
 </body>
 </html>
