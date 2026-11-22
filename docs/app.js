@@ -680,6 +680,7 @@
 
   // ------------------------------------------------------------------ mais: viagem, avisos, conta
   let viag = store.get("viagem", {}), mapaV = null, camadaV = null, pedidoViagem = 0;
+  if (viag.origem !== undefined || viag.destino !== undefined) { delete viag.origem; delete viag.destino; store.set("viagem", viag); }
   function abrirMais() {
     desenharNtfy();
     $("#conta-info").textContent = sessao?.email ? `Entraste como ${sessao.email}.` : "";
@@ -698,10 +699,10 @@
     // hora de saída: agora (arredondada aos 5 min), se ainda não foi escolhida ou já passou
     const h = $("#v-hora"), agora = Math.ceil(Date.now() / 300000) * 300000;
     if (!h.value || h.value < localInput(Date.now() - 60000)) h.value = localInput(agora);
-    for (const [id, k] of [["#v-origem", "origem"], ["#v-destino", "destino"]]) {
-      const el = $(id), v = viag[k];
-      if (v && !el.value) { el.value = v.nome || v; if (v.lat) { el.dataset.lat = v.lat; el.dataset.lon = v.lon; } }
-    }
+    // cada vez que entras: "De" volta à tua localização (campo vazio) e "Para" fica em branco
+    for (const id of ["#v-origem", "#v-destino"]) { const el = $(id); el.value = ""; delete el.dataset.lat; delete el.dataset.lon; }
+    $("#sug-origem").hidden = true; $("#sug-destino").hidden = true;
+    $("#v-out").hidden = true; $("#v-erro").textContent = "";
     if (mapaV) setTimeout(() => mapaV.invalidateSize(), 50);
   }
   // instante (ms) do "AAAA-MM-DDTHH:MM" escrito, em hora de Lisboa
@@ -860,7 +861,7 @@
     if (vel != null && !(vel >= 40 && vel <= 140)) { erro.textContent = "A velocidade média tem de estar entre 40 e 140 km/h (ou deixa vazio)."; return; }
     const saida = horaTxt ? msDeLocal(horaTxt) : Date.now();
     const ponto = (el, txt) => el.dataset.lat ? { lat: +el.dataset.lat, lon: +el.dataset.lon, nome: txt } : null;
-    viag = { origem: origemTxt ? (ponto(oEl, origemTxt) || origemTxt) : "", destino: ponto(dEl, destinoTxt) || destinoTxt, soc, fim, cons, vel };
+    viag = { soc, fim, cons, vel };          // os locais não ficam guardados
     store.set("viagem", viag);
     const btn = $("#v-calcular"); btn.disabled = true; btn.textContent = "A calcular…";
     try {
