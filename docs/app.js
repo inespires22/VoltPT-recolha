@@ -89,6 +89,7 @@
   // ------------------------------------------------------------------ estado da página
   let dados = {};            // inicio, historico
   let vista = store.get("vista", "inicio");
+  if (!["inicio", "mapa", "hist", "mais"].includes(vista)) vista = "inicio";
 
   function mostrar(v) {
     vista = v; store.set("vista", v);
@@ -96,7 +97,6 @@
     $$(".tabbar button").forEach((b) => b.setAttribute("aria-current", b.dataset.v === v ? "page" : "false"));
     document.body.classList.toggle("no-mapa", v !== "mapa");
     if (v === "mapa") abrirMapa();
-    if (v === "calc") abrirCalc();
     if (v === "hist") abrirHist();
     if (v === "mais") abrirMais();
     window.scrollTo(0, 0);
@@ -127,7 +127,7 @@
     const i = dados.inicio;
     const mp = i.meus_postos || [];
     $("#meus-postos").innerHTML = mp.length ? mp.map(cartaoPosto).join("")
-      : `<div class="vazio-msg">Ainda não há postos teus. Carrega as faturas para aparecerem aqui.</div>`;
+      : `<div class="vazio-msg">Ainda não tens favoritos. No Mapa, abre um posto e toca na ☆ ao lado do ✕.</div>`;
     const alertas = (i.alertas || []).filter((a) => !a.disparado && new Date(a.expira) > new Date());
     $("#alertas-box").innerHTML = alertas.map((a) => `<div class="alerta"><span>🔔 À espera de <b>${esc(a.posto)}</b> até ${horaCurta(a.expira)}</span>
       <button class="btn" data-cancelar="${esc(a.id)}">Cancelar</button></div>`).join("");
@@ -174,14 +174,25 @@
           desenharMapa();
         });
       });
-      $("#btn-gps").addEventListener("click", () => {
-        if (!navigator.geolocation) return toast("O browser não dá a localização.");
-        navigator.geolocation.getCurrentPosition(
-          (p) => { mapa.setView([p.coords.latitude, p.coords.longitude], 14); },
-          () => toast("Sem acesso à localização."), { enableHighAccuracy: true, timeout: 10000 });
-      });
+      $("#btn-gps").addEventListener("click", () => localizar(true, true));
+      localizar(true, false);              // abre onde estás (se deres acesso à localização)
     }
     setTimeout(() => { mapa.invalidateSize(); carregarMapa(); }, 50);
+  }
+  let eu = null;
+  function localizar(centrar, avisar) {
+    if (!navigator.geolocation) { if (avisar) toast("O browser não dá a localização."); return; }
+    navigator.geolocation.getCurrentPosition((p) => {
+      const ll = [p.coords.latitude, p.coords.longitude];
+      if (!eu) {
+        eu = L.layerGroup([
+          L.circle(ll, { radius: Math.min(p.coords.accuracy || 50, 300), color: "#2563eb", weight: 0, fillOpacity: 0.12, interactive: false }),
+          L.circleMarker(ll, { radius: 7, color: "#fff", weight: 2.5, fillColor: "#2563eb", fillOpacity: 1, interactive: false }),
+        ]).addTo(mapa);
+      } else eu.eachLayer((l) => l.setLatLng(ll));
+      if (centrar) mapa.setView(ll, Math.max(mapa.getZoom(), 14));
+    }, () => { if (avisar) toast("Sem acesso à localização: autoriza-a nas definições do browser."); },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
   }
   async function carregarMapa() {
     if (!mapa || vista !== "mapa") return;
@@ -201,12 +212,12 @@
     if (!camada) return;
     camada.clearLayers();
     const cor = COR();
-    // [id, nome, lat, lon, estado, livres, tomadas, kW, tipo, operador, tem_preco, meu]
+    // [id, nome, lat, lon, estado, livres, tomadas, kW, tipo, operador, tem_preco, favorito]
     const lista = ultimoMapa.filter((p) =>
       (!filtros.livres || p[4] === "Livre") &&
       (!filtros.dc || /DC/.test(p[8]) && p[7] >= 40) &&
       (!filtros.ac || /AC/.test(p[8])) &&
-      (!filtros.meus || p[11]));
+      (!filtros.fav || p[11]));
     for (const p of lista.slice().reverse()) {
       const kw = p[7] || 0, raio = kw >= 150 ? 10 : kw >= 50 ? 8.5 : 7;
       const m = L.circleMarker([p[2], p[3]], {
@@ -224,6 +235,7 @@
   async function abrirPosto(id) {
     postoAberto = id;
     $("#sheet-body").innerHTML = `<p class="nota">A carregar…</p>`;
+    $("#sheet-fav").hidden = true;
     $("#sheet").hidden = false; $("#sheet-bg").hidden = false;
     try {
       const p = await rpc("voltpt_posto", { p_posto: id });
@@ -231,7 +243,7 @@
       desenharPosto(p);
     } catch (e) { $("#sheet-body").innerHTML = `<p class="erro">${esc(e.message)}</p>`; }
   }
-  function fecharPosto() { $("#sheet").hidden = true; $("#sheet-bg").hidden = true; postoAberto = null; }
+  function fecharPosto() { $("#sheet").hidden = true; $("#sheet-bg").hidden = true; postoAberto = null; tarifaPosto = null; }
   function desenharPosto(p) {
     const cls = estadoClasse(p.estado);
     const tom = (p.tomadas || []).map((t) => `<div class="tomada">
@@ -253,13 +265,30 @@
       <div class="acoes">
         ${alerta}
         <a class="btn" href="${navegar}" target="_blank" rel="noopener">🧭 Ir para lá</a>
-        ${p.com_grelha || p.tem_preco || (p.tomadas || []).some((t) => t.nap) ? `<button class="btn" data-acao="calcular">💶 Quanto custa</button>` : `<button class="btn" disabled title="O operador não publica preço">💶 Sem preço</button>`}
         <button class="btn full danger" data-acao="denunciar">🚫 Lugar ocupado por quem não carrega</button>
       </div>
       <div id="s-extra"></div>
+      ${htmlCalc()}
       <h3 class="sec2" style="margin-top:18px">Costuma estar ocupado?</h3>
       ${grelhaOcupacao(p.ocupacao)}`;
     $("#sheet-body").dataset.id = p.id;
+    const fav = $("#sheet-fav");
+    fav.hidden = false; fav.dataset.id = p.id;
+    fav.setAttribute("aria-pressed", p.favorito ? "true" : "false");
+    fav.textContent = p.favorito ? "★" : "☆";
+    fav.setAttribute("aria-label", p.favorito ? "Tirar dos favoritos" : "Marcar como favorito");
+    iniciarCalc(p.id);
+  }
+  async function alternarFavorito() {
+    const b = $("#sheet-fav"), id = b.dataset.id, novo = b.getAttribute("aria-pressed") !== "true";
+    try {
+      await rpc("voltpt_favorito", { p_posto: id, p_favorito: novo });
+      b.setAttribute("aria-pressed", novo ? "true" : "false"); b.textContent = novo ? "★" : "☆";
+      b.setAttribute("aria-label", novo ? "Tirar dos favoritos" : "Marcar como favorito");
+      toast(novo ? "Adicionado aos favoritos." : "Tirado dos favoritos.");
+      const m = ultimoMapa.find((x) => x[0] === id); if (m) { m[11] = novo; desenharMapa(); }
+      carregarInicio().catch(() => {});
+    } catch (e) { toast(e.message); }
   }
   function precoTexto(n) {
     const partes = [];
@@ -306,118 +335,128 @@
     } catch (e) { toast(e.message); }
   }
 
-  // ------------------------------------------------------------------ calculadora
-  let calc = store.get("calc", {}), grelha = null;
-  const PARES_EST = [[10, 80], [20, 80], [30, 80], [10, 100], [20, 100], [50, 100]];
-  function abrirCalc() {
-    const i = dados.inicio; if (!i) return;
-    const sel = $("#c-posto");
-    const comGrelha = i.postos_com_preco || [];
-    const lista = [...comGrelha.map((p) => ({ ...p, grelha: true })),
-                   ...(calc.recentes || []).filter((r) => !comGrelha.some((p) => p.id === r.id))];
-    if (!lista.length) {
-      $("#c-res").innerHTML = `<div class="vazio-msg">No Mapa, toca num posto e escolhe "Quanto custa".</div>`;
+  // ------------------------------------------------------------------ calculadora (dentro da folha do posto)
+  let kc = Object.assign({ si: 20, sa: 80 }, store.get("kc", {}));   // bateria agora / até onde (lembradas)
+  let tarifaPosto = null, linhasCalc = null, selCalc = null, tCalc = null;
+  const horaAgora = () => { const l = VoltCalc.lisboa(Date.now()); return { dia: l.dia, hora: Math.floor(l.seg / 3600) }; };
+  function htmlCalc() {
+    const a = horaAgora();
+    return `<div class="calc-box" id="calc-box">
+      <h3>💶 Quanto vai custar?</h3>
+      <div id="k-corpo">
+        <div class="soc-seta">
+          <label class="campo">Bateria agora (%)<input id="k-si" type="number" inputmode="numeric" min="0" max="99" step="1" value="${kc.si}"></label>
+          <span class="seta">→</span>
+          <label class="campo">Carregar até (%)<input id="k-sa" type="number" inputmode="numeric" min="1" max="100" step="1" value="${kc.sa}"></label>
+        </div>
+        <p id="k-erro" class="calc-erro" role="alert"></p>
+        <div class="campo" id="k-tomadas-box" hidden><span>Tomada</span><div id="k-tomadas" class="chips-wrap" role="group" aria-label="Tomada"></div></div>
+        <div class="linha2">
+          <label class="campo">Dia<select id="k-dia">${DIAS_LONGOS.map((d, k) => `<option value="${k + 1}">${k + 1 === a.dia ? "Hoje" : d[0].toUpperCase() + d.slice(1)}</option>`).join("")}</select></label>
+          <label class="campo">Hora de início<select id="k-hora">${Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, "0")}h</option>`).join("")}</select></label>
+        </div>
+        <div id="k-res" class="resultado"><p class="nota">A calcular…</p></div>
+        <div id="k-melhor" class="melhor" hidden></div>
+        <h3 class="sec2">Semana inteira <span class="muted">(toca numa hora)</span></h3>
+        <div id="k-grelha" class="grelha" role="grid" aria-label="Custo por dia e hora"></div>
+        <p class="nota" id="k-nota"></p>
+      </div>
+    </div>`;
+  }
+  async function iniciarCalc(id) {
+    selCalc = Object.assign(horaAgora(), { tomada: 0 });
+    $("#k-dia").value = selCalc.dia; $("#k-hora").value = selCalc.hora;
+    try {
+      const t = await rpc("voltpt_tarifa", { p_posto: id });
+      if (postoAberto !== id) return;
+      tarifaPosto = t; calcular();
+    } catch (e) { $("#k-res").innerHTML = `<p class="erro">${esc(e.message)}</p>`; }
+  }
+  function opcoesTomada(t) {
+    const comPreco = (t.tomadas || []).filter((x) => x.manual || x.nap);
+    const distintas = [];
+    for (const x of comPreco) if (!distintas.some((d) => d.tipo === x.tipo && +d.kw_util === +x.kw_util)) distintas.push(x);
+    return distintas;
+  }
+  function lerSoc() {
+    const si = Math.round(+$("#k-si").value), sa = Math.round(+$("#k-sa").value);
+    const erro = $("#k-si").value === "" || $("#k-sa").value === "" ? "Escreve as duas percentagens."
+      : si < 0 || si > 99 ? "A bateria agora tem de estar entre 0 e 99 %."
+      : sa < 1 || sa > 100 ? "O carregamento vai até 100 % no máximo."
+      : sa <= si ? "O \"até\" tem de ser maior do que a bateria agora." : "";
+    $("#k-erro").textContent = erro;
+    return erro ? null : { si, sa };
+  }
+  function agendarCalculo() { clearTimeout(tCalc); tCalc = setTimeout(calcular, 300); }
+  function calcular() {
+    const t = tarifaPosto; if (!t || !$("#calc-box")) return;
+    const tomadas = opcoesTomada(t);
+    if (!tomadas.length || !t.carro) {
+      $("#k-corpo").innerHTML = `<p class="nota">Este posto não publica preço no NAP: não dá para estimar o custo.</p>`;
       return;
     }
-    sel.innerHTML = (comGrelha.length ? `<optgroup label="Os meus postos">${comGrelha.map((p) => `<option value="${esc(p.id)}">${esc(p.posto)}</option>`).join("")}</optgroup>` : "") +
-      (lista.length > comGrelha.length ? `<optgroup label="Outros (vistos no mapa)">${lista.filter((p) => !p.grelha).map((p) => `<option value="${esc(p.id)}">${esc(p.posto)}</option>`).join("")}</optgroup>` : "");
-    if (!lista.some((p) => p.id === calc.posto)) calc.posto = lista[0].id;
-    sel.value = calc.posto;
-    $("#c-dia").innerHTML = DIAS_LONGOS.map((d, k) => `<option value="${k + 1}">${d[0].toUpperCase() + d.slice(1)}</option>`).join("");
-    $("#c-hora").innerHTML = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, "0")}h</option>`).join("");
-    const agora = new Date();
-    if (!calc.dia) { calc.dia = ((agora.getDay() + 6) % 7) + 1; calc.hora = agora.getHours(); }
-    $("#c-dia").value = calc.dia; $("#c-hora").value = calc.hora;
-    carregarGrelha();
-  }
-  let tarifaAtual = null;
-  async function carregarGrelha() {
-    const temGrelha = (dados.inicio?.postos_com_preco || []).some((p) => p.id === calc.posto);
-    $("#c-tomadas-box").hidden = true;
-    try {
-      if (temGrelha) {
-        grelha = await rpc("voltpt_custos", { p_posto: calc.posto, p_soc_inicio: calc.si ?? null, p_soc_alvo: calc.sa ?? null });
-        grelha.estimativa = null;
-        calc.si = grelha.soc_inicio; calc.sa = grelha.soc_alvo;
-      } else {
-        $("#c-res").innerHTML = `<p class="nota">A calcular…</p>`;
-        if (!tarifaAtual || tarifaAtual.id !== calc.posto) tarifaAtual = { id: calc.posto, ...(await rpc("voltpt_tarifa", { p_posto: calc.posto })) };
-        grelha = estimarPosto(tarifaAtual);
-      }
-      store.set("calc", calc);
-      const pares = (grelha.pares || []).slice().sort((a, b) => a[1] - b[1] || a[0] - b[0]);
-      $("#c-socs").innerHTML = pares.map(([a, b]) =>
-        `<button class="chip" data-soc="${a}-${b}" aria-pressed="${a === calc.si && b === calc.sa}">${a}→${b}%</button>`).join("");
-      desenharCalc();
-    } catch (e) { toast(e.message); }
-  }
-  /** Grelha estimada no telemóvel (app/calc.js) para um posto sem grelha pré-calculada. */
-  function estimarPosto(t) {
-    const tomadas = (t.tomadas || []).filter((x) => x.manual || x.nap);
-    if (!tomadas.length || !t.carro) return { linhas: [], pares: [], estimativa: "sem_preco" };
-    // tomadas diferentes (tipo/potência) viram escolhas
-    const distintas = [];
-    for (const x of tomadas) if (!distintas.some((d) => d.tipo === x.tipo && +d.kw_util === +x.kw_util)) distintas.push(x);
-    if (calc.tomada == null || calc.tomada >= distintas.length) calc.tomada = 0;
-    if (distintas.length > 1) {
-      $("#c-tomadas").innerHTML = distintas.map((x, k) =>
-        `<button class="chip" data-tomada="${k}" aria-pressed="${k === calc.tomada}">${esc(x.tipo)} ${num(x.kw_util)} kW</button>`).join("");
-      $("#c-tomadas-box").hidden = false;
-    }
-    const tm = distintas[calc.tomada];
-    const manual = tm.manual, adhoc = manual && manual.party === "ADHOC";
-    const opc = manual || VoltCalc.tarifaNap(tm.nap);
-    if (!PARES_EST.some(([a, b]) => a === calc.si && b === calc.sa)) { calc.si = 20; calc.sa = 80; }
-    const carro = { ...t.carro, curva: t.carro.curva.map(([s, k]) => [+s, +k]),
-                    bateria_kwh: +t.carro.bateria_kwh, max_ac_kw: +t.carro.max_ac_kw, max_dc_kw: +t.carro.max_dc_kw, consumo: +t.carro.consumo };
-    const linhas = VoltCalc.semana({ carro, tomada: { tipo: tm.tipo, kw_util: +tm.kw_util }, opc,
-      regime: adhoc ? "ADHOC" : "MOBIE", ceme: t.ceme, taxas: t.taxas, si: calc.si, sa: calc.sa });
-    return { linhas, pares: PARES_EST, regime: adhoc ? "ADHOC" : "MOBIE", estimativa: manual ? "manual" : "nap", precoNap: tm.nap };
+    const soc = lerSoc(); if (!soc) return;
+    kc = soc; store.set("kc", kc);
+    if (selCalc.tomada >= tomadas.length) selCalc.tomada = 0;
+    $("#k-tomadas-box").hidden = tomadas.length < 2;
+    $("#k-tomadas").innerHTML = tomadas.map((x, k) =>
+      `<button class="chip" data-tomada="${k}" aria-pressed="${k === selCalc.tomada}">${esc(x.tipo)} ${num(x.kw_util)} kW</button>`).join("");
+    const tm = tomadas[selCalc.tomada], manual = tm.manual, adhoc = !!(manual && manual.party === "ADHOC");
+    const params = {
+      carro: { curva: t.carro.curva.map(([a, b]) => [+a, +b]), bateria_kwh: +t.carro.bateria_kwh,
+               max_ac_kw: +t.carro.max_ac_kw, max_dc_kw: +t.carro.max_dc_kw, consumo: +t.carro.consumo },
+      tomada: { tipo: tm.tipo, kw_util: +tm.kw_util }, opc: manual || VoltCalc.tarifaNap(tm.nap),
+      regime: adhoc ? "ADHOC" : "MOBIE", ceme: t.ceme, taxas: t.taxas, si: soc.si, sa: soc.sa,
+    };
+    linhasCalc = { linhas: VoltCalc.semana(params), params, adhoc, manual: !!manual, nap: tm.nap };
+    desenharCalc();
   }
   function desenharCalc() {
-    const linhas = grelha?.linhas || [];
-    if (!linhas.length) { $("#c-res").innerHTML = `<div class="vazio-msg">${grelha?.estimativa === "sem_preco" ? "Este posto não publica preço no NAP: não dá para estimar." : "Sem custos para este posto."}</div>`; $("#c-grelha").innerHTML = ""; $("#c-melhor").innerHTML = ""; return; }
-    const por = new Map(linhas.map((l) => [l[0] * 100 + l[1], l]));
-    const l = por.get(calc.dia * 100 + calc.hora);
-    const custos = linhas.map((x) => x[2]), min = Math.min(...custos), max = Math.max(...custos);
-    $("#c-res").innerHTML = l ? `
-      <div class="muted" style="font-size:13px">${DIAS_LONGOS[calc.dia - 1]} às ${String(calc.hora).padStart(2, "0")}h · ${calc.si}% → ${calc.sa}%</div>
-      <div class="grande">${eur(l[2])}</div>
-      <div class="det"><div>Duração<b>${duracao(l[3])}</b></div><div>Energia<b>${num(l[4], 1)} kWh</b></div>
-        <div>Autonomia ganha<b>${num(l[5])} km</b></div><div>Pago ao minuto<b>${eur(l[6])}</b></div>
-        <div>Por kWh<b>${l[4] ? nf(3).format(l[2] / l[4]) + " €" : "—"}</b></div><div>Por 100 km<b>${l[5] ? eur(l[2] / l[5] * 100) : "—"}</b></div></div>`
-      : `<div class="vazio-msg">Sem valor para essa hora.</div>`;
-    // melhor hora a partir de agora (próxima ocorrência da hora mais barata)
-    const agora = new Date(); let melhor = null;
-    for (let k = 0; k < 168; k++) {
-      const t = new Date(agora.getTime() + k * 3600000), d = ((t.getDay() + 6) % 7) + 1, h = t.getHours();
-      const x = por.get(d * 100 + h);
-      if (x && x[2] <= min + 0.005) { melhor = { k, d, h, x }; break; }
+    const L_ = linhasCalc; if (!L_ || !$("#calc-box")) return;
+    const linhas = L_.linhas, por = new Map(linhas.map((l) => [l[0] * 100 + l[1], l]));
+    const agora = horaAgora(), eAgora = selCalc.dia === agora.dia && selCalc.hora === agora.hora;
+    let l = por.get(selCalc.dia * 100 + selCalc.hora);
+    if (eAgora) {                         // começar já: hora exata, não a hora cheia
+      const r = VoltCalc.estimar(Object.assign({}, L_.params, { inicio: Date.now() }));
+      l = [selCalc.dia, selCalc.hora, r.custo, Math.round(r.dur_min), Math.round(r.kwh * 10) / 10, r.km, r.tempo];
     }
-    if (melhor && l) {
-      const quando = melhor.k === 0 ? "agora" : melhor.k < 24 && melhor.d === ((agora.getDay() + 6) % 7) + 1 ? `hoje às ${String(melhor.h).padStart(2, "0")}h`
-        : melhor.k < 48 && melhor.d === ((agora.getDay() + 7) % 7) + 1 ? `amanhã às ${String(melhor.h).padStart(2, "0")}h`
-        : `${DIAS_LONGOS[melhor.d - 1]} às ${String(melhor.h).padStart(2, "0")}h`;
+    const custos = linhas.map((x) => x[2]), min = Math.min(...custos), max = Math.max(...custos);
+    const p = L_.params;
+    const fim = new Date((eAgora ? Date.now() : VoltCalc.instante(VoltCalc.inicioSemana(Date.now()), selCalc.dia, selCalc.hora)) + l[3] * 60000);
+    $("#k-res").innerHTML = `
+      <div class="muted" style="font-size:13px">${eAgora ? "Se começares agora" : `${DIAS_LONGOS[selCalc.dia - 1]} às ${String(selCalc.hora).padStart(2, "0")}h`} · ${p.si}% → ${p.sa}%</div>
+      <div class="grande">${eur(l[2])}</div>
+      <div class="det"><div>Duração<b>${duracao(l[3])}</b></div><div>Pronto às<b>${horaCurta(fim)}</b></div>
+        <div>Energia<b>${num(l[4], 1)} kWh</b></div><div>Autonomia ganha<b>${num(l[5])} km</b></div>
+        <div>Pago ao minuto<b>${eur(l[6])}</b></div><div>Por kWh<b>${l[4] ? nf(3).format(l[2] / l[4]) + " €" : "—"}</b></div></div>`;
+    // próxima ocorrência da hora mais barata, a partir de agora
+    let melhor = null;
+    for (let k = 0; k < 168; k++) {
+      const x = VoltCalc.lisboa(Date.now() + k * 3600000), d = x.dia, h = Math.floor(x.seg / 3600), y = por.get(d * 100 + h);
+      if (y && y[2] <= min + 0.005) { melhor = { k, d, h }; break; }
+    }
+    const mel = $("#k-melhor");
+    if (melhor) {
+      const hh = String(melhor.h).padStart(2, "0") + "h";
+      const quando = melhor.k === 0 ? "agora" : melhor.d === agora.dia && melhor.k < 24 ? `hoje às ${hh}`
+        : melhor.d === (agora.dia % 7) + 1 && melhor.k < 48 ? `amanhã às ${hh}` : `${DIAS_LONGOS[melhor.d - 1]} às ${hh}`;
       const poup = l[2] - min;
-      $("#c-melhor").innerHTML = poup > 0.004
-        ? `Mais barato: <b>${quando}</b>, ${eur(min)} — poupas <b>${eur(poup)}</b>.`
-        : `✓ Esta já é das horas mais baratas (${eur(min)}). Próxima: ${quando}.`;
-    } else $("#c-melhor").innerHTML = "";
+      mel.innerHTML = poup > 0.004 ? `Mais barato: <b>${quando}</b>, ${eur(min)} — poupas <b>${eur(poup)}</b>.`
+        : `✓ Esta já é das horas mais baratas (${eur(min)}).`;
+      mel.hidden = false;
+    } else mel.hidden = true;
     let html = `<span></span>${Array.from({ length: 24 }, (_, h) => `<span class="h">${h % 3 === 0 ? h : ""}</span>`).join("")}`;
     for (let d = 1; d <= 7; d++) {
       html += `<span class="d">${DIAS[d - 1]}</span>`;
       for (let h = 0; h < 24; h++) {
-        const x = por.get(d * 100 + h);
-        if (!x) { html += `<span class="c vazio"></span>`; continue; }
-        const f = max > min ? (x[2] - min) / (max - min) : 0;
-        html += `<button class="c${d === calc.dia && h === calc.hora ? " sel" : ""}" data-dh="${d}-${h}" style="background:${corEscala(f)}" aria-label="${DIAS[d - 1]} ${h}h: ${eur(x[2])}"></button>`;
+        const x = por.get(d * 100 + h), f = max > min ? (x[2] - min) / (max - min) : 0;
+        html += `<button class="c${d === selCalc.dia && h === selCalc.hora ? " sel" : ""}" data-dh="${d}-${h}" style="background:${corEscala(f)}" aria-label="${DIAS[d - 1]} ${h}h: ${eur(x[2])}"></button>`;
       }
     }
-    $("#c-grelha").innerHTML = html;
-    const origem = grelha.estimativa === "nap" ? `Estimativa com o preço publicado pelo operador no NAP (${precoTexto(grelha.precoNap)}, sem IVA) + o teu contrato MyAtlante + taxas e IVA. Pode mudar se o operador alterar o preço.`
-      : grelha.estimativa === "manual" ? `Estimativa com a tarifa que registaste para este posto${grelha.regime === "ADHOC" ? " (preço único)" : " + MyAtlante"}.`
-      : `Calculado ${grelha.regime === "ADHOC" ? "com o preço único do posto" : "com a tarifa do operador + MyAtlante"}${dados.inicio?.grelha_em ? ", atualizado " + haQuanto(dados.inicio.grelha_em) : ""}.`;
-    $("#c-nota").textContent = `Verde ${eur(min)} · vermelho ${eur(max)}. ${origem}`;
+    $("#k-grelha").innerHTML = html;
+    const origem = L_.manual ? `Com a tarifa que registaste para este posto${L_.adhoc ? " (preço único)" : " + MyAtlante"}.`
+      : `Com o preço publicado pelo operador no NAP (${precoTexto(L_.nap)}, sem IVA) + o teu contrato MyAtlante + taxas e IVA.`;
+    $("#k-nota").textContent = `Verde ${eur(min)} · vermelho ${eur(max)}. ${origem} É uma estimativa: a fatura pode variar alguns cêntimos.`;
   }
   function corEscala(f) {
     const cs = getComputedStyle(document.documentElement);
@@ -428,34 +467,66 @@
   // ------------------------------------------------------------------ histórico
   const PAR_DEF = { consumo: 6.5, preco: 1.70, co2: 2.31, rede: 0 };
   let par = Object.assign({}, PAR_DEF, store.get("param", {}));
+  let filtroH = Object.assign({ per: "tudo", de: "", ate: "" }, store.get("hfiltro", {}));
+  const diaLisboa = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/Lisbon" });   // AAAA-MM-DD
+  const isoDia = (d) => d.toLocaleDateString("en-CA");
+  function intervalo(per) {
+    const h = new Date(), y = h.getFullYear(), m = h.getMonth();
+    if (per === "mes") return [isoDia(new Date(y, m, 1)), isoDia(h)];
+    if (per === "mes-1") return [isoDia(new Date(y, m - 1, 1)), isoDia(new Date(y, m, 0))];
+    if (per === "3m") return [isoDia(new Date(y, m - 3, h.getDate())), isoDia(h)];
+    if (per === "ano") return [isoDia(new Date(y, 0, 1)), isoDia(h)];
+    return ["", ""];
+  }
   async function abrirHist() {
     for (const k of Object.keys(PAR_DEF)) $("#p-" + k).value = par[k];
     try { dados.hist = await rpc("voltpt_historico"); desenharHist(); } catch (e) { toast(e.message); }
   }
+  function escolherPeriodo(per) {
+    filtroH.per = per;
+    if (per !== "custom") [filtroH.de, filtroH.ate] = intervalo(per);
+    store.set("hfiltro", filtroH); desenharHist();
+  }
   function desenharHist() {
     const h = dados.hist; if (!h) return;
-    const t = h.totais || {};
-    const combustao = (t.km || 0) / 100 * par.consumo * par.preco;
-    const co2 = (t.km || 0) / 100 * par.consumo * par.co2 - (t.kwh || 0) * par.rede;
-    $("#h-kpis").innerHTML =
-      kpi(eur(t.custo), `${num(t.carregamentos)} carregamentos`) + kpi(num(t.kwh, 1) + " kWh", `≈ ${num(t.km)} km`) +
+    if (filtroH.per !== "custom") [filtroH.de, filtroH.ate] = intervalo(filtroH.per);
+    $$(".filtro-datas [data-per]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.per === filtroH.per ? "true" : "false"));
+    $("#h-de").value = filtroH.de; $("#h-ate").value = filtroH.ate;
+    const todos = h.carregamentos || [];
+    const lista = todos.filter((c) => { const d = diaLisboa(c.inicio); return (!filtroH.de || d >= filtroH.de) && (!filtroH.ate || d <= filtroH.ate); });
+    const soma = (k) => lista.reduce((a, c) => a + (+c[k] || 0), 0);
+    const t = { n: lista.length, custo: soma("custo"), kwh: soma("kwh"), km: soma("km"), tempo: soma("tempo"), tar_fv: soma("tar_fv") };
+    const fmtD = (s) => new Date(s + "T12:00:00").toLocaleDateString("pt-PT", { day: "numeric", month: "short", year: "numeric" });
+    $("#h-titulo").textContent = !filtroH.de && !filtroH.ate ? "Desde que tenho o carro"
+      : `${filtroH.de ? fmtD(filtroH.de) : "início"} → ${filtroH.ate ? fmtD(filtroH.ate) : "hoje"}`;
+    const combustao = t.km / 100 * par.consumo * par.preco;
+    const co2 = t.km / 100 * par.consumo * par.co2 - t.kwh * par.rede;
+    $("#h-kpis").innerHTML = !t.n ? `<div class="vazio-msg" style="grid-column:1/-1">Sem carregamentos neste período.</div>` :
+      kpi(eur(t.custo), `${num(t.n)} carregamento${t.n === 1 ? "" : "s"}`) + kpi(num(t.kwh, 1) + " kWh", `≈ ${num(t.km)} km`) +
       kpi(t.kwh ? nf(3).format(t.custo / t.kwh) + " €" : "—", "por kWh") + kpi(t.km ? eur(t.custo / t.km * 100) : "—", "por 100 km") +
-      kpi(eur(combustao - (t.custo || 0)), "poupado vs combustão", "destaque") + kpi(num(co2) + " kg", "CO2 evitado", "destaque") +
-      kpi(t.custo ? num(100 * (t.tempo || 0) / t.custo) + " %" : "—", "pago ao minuto") +
-      kpi(eur((t.tar_fora_vazio || 0) * 0.78), "poupavas só em vazio");
-    const meses = h.meses || [];
-    $("#h-meses").innerHTML = meses.length ? meses.slice().reverse().map((m) => {
+      kpi(eur(combustao - t.custo), "poupado vs combustão", "destaque") + kpi(num(co2) + " kg", "CO2 evitado", "destaque") +
+      kpi(t.custo ? num(100 * t.tempo / t.custo) + " %" : "—", "pago ao minuto") +
+      kpi(eur(t.tar_fv * 0.78), "poupavas só em vazio");
+    // por mês (dentro do período)
+    const meses = new Map();
+    for (const c of lista) {
+      const k = diaLisboa(c.inicio).slice(0, 7);
+      const m = meses.get(k) || { n: 0, custo: 0, kwh: 0, km: 0, fixo: 0, tempo: 0, energia: 0, taxas: 0 };
+      m.n++; for (const f of ["custo", "kwh", "km", "fixo", "tempo", "energia", "taxas"]) m[f] += +c[f] || 0;
+      meses.set(k, m);
+    }
+    $("#h-meses").innerHTML = meses.size ? [...meses.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([k, m]) => {
       const tot = (m.fixo + m.tempo + m.energia + m.taxas) || 1;
       const seg = (v, c) => `<i class="${c}" style="width:${(100 * v / tot).toFixed(1)}%"></i>`;
-      const [a, mm] = m.mes.split("-");
+      const [a, mm] = k.split("-");
       const nome = new Date(+a, +mm - 1, 1).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
       return `<div class="mes"><div class="topo"><span>${esc(nome)}</span><span>${eur(m.custo)}</span></div>
         <div class="barra">${seg(m.fixo, "c-fixo")}${seg(m.tempo, "c-tempo")}${seg(m.energia, "c-energia")}${seg(m.taxas, "c-taxas")}</div>
         <div class="leg"><span><i class="c-energia"></i>Energia+TAR ${eur(m.energia)}</span><span><i class="c-tempo"></i>Minutos ${eur(m.tempo)}</span>
         <span><i class="c-fixo"></i>Ativação ${eur(m.fixo)}</span><span><i class="c-taxas"></i>Taxas ${eur(m.taxas)}</span></div>
         <div class="nota" style="margin:6px 0 0">${num(m.n)} carregamentos · ${num(m.kwh, 1)} kWh · ≈ ${num(m.km)} km</div></div>`;
-    }).join("") : `<div class="vazio-msg">Ainda sem carregamentos.</div>`;
-    $("#h-lista").innerHTML = (h.carregamentos || []).map((c) => `<div class="sessao">
+    }).join("") : `<div class="vazio-msg">Sem carregamentos neste período.</div>`;
+    $("#h-lista").innerHTML = lista.map((c) => `<div class="sessao">
         <div class="s1">${esc(c.posto)}${c.so_vazio ? '<span class="tag">vazio</span>' : ""}${c.tipo === "DC" ? '<span class="tag">DC</span>' : ""}</div>
         <div class="s3">${eur(c.custo)}</div>
         <div class="s2">${dataCurta(c.inicio)} ${horaCurta(c.inicio)} · ${num(c.kwh, 1)} kWh · ${duracao(c.min)} · ≈ ${num(c.km)} km</div>
@@ -526,12 +597,6 @@
         $("#s-extra").innerHTML = `<p class="nota">Durante quanto tempo?</p><div class="escolha">
           ${[30, 60, 120, 240].map((m) => `<button class="btn" data-acao="avisar-${m}">${m < 60 ? m + " min" : m / 60 + " h"}</button>`).join("")}</div>`;
       } else if (ac.dataset.acao.startsWith("avisar-")) avisar(+ac.dataset.acao.slice(7));
-      else if (ac.dataset.acao === "calcular") {
-        const id = $("#sheet-body").dataset.id, nome = $("#s-nome")?.textContent || "Posto";
-        calc.posto = id; calc.si = calc.sa = undefined; calc.tomada = 0;
-        calc.recentes = [{ id, posto: nome }, ...(calc.recentes || []).filter((r) => r.id !== id)].slice(0, 6);
-        store.set("calc", calc); fecharPosto(); mostrar("calc");
-      }
       else if (ac.dataset.acao === "denunciar") {
         $("#s-extra").innerHTML = `<p class="nota">O que se passa?</p><div class="escolha">
           <button class="btn" data-acao="den-ICE_PARKED">Carro a combustão</button>
@@ -539,23 +604,25 @@
           <button class="btn" data-acao="den-BLOCKED_ACCESS">Acesso bloqueado</button></div>`;
       } else if (ac.dataset.acao.startsWith("den-")) denunciar(ac.dataset.acao.slice(4));
     });
-    // calculadora
-    $("#c-posto").addEventListener("change", (e) => { calc.posto = e.target.value; calc.si = calc.sa = undefined; calc.tomada = 0; carregarGrelha(); });
-    $("#c-tomadas").addEventListener("click", (e) => {
-      const b = e.target.closest("[data-tomada]"); if (!b) return;
-      calc.tomada = +b.dataset.tomada; carregarGrelha();
+    // calculadora dentro da folha do posto
+    $("#sheet-fav").addEventListener("click", alternarFavorito);
+    $("#sheet-body").addEventListener("input", (e) => { if (e.target.id === "k-si" || e.target.id === "k-sa") agendarCalculo(); });
+    $("#sheet-body").addEventListener("change", (e) => {
+      if (e.target.id === "k-dia") { selCalc.dia = +e.target.value; desenharCalc(); }
+      if (e.target.id === "k-hora") { selCalc.hora = +e.target.value; desenharCalc(); }
     });
-    $("#c-dia").addEventListener("change", (e) => { calc.dia = +e.target.value; store.set("calc", calc); desenharCalc(); });
-    $("#c-hora").addEventListener("change", (e) => { calc.hora = +e.target.value; store.set("calc", calc); desenharCalc(); });
-    $("#c-socs").addEventListener("click", (e) => {
-      const b = e.target.closest("[data-soc]"); if (!b) return;
-      [calc.si, calc.sa] = b.dataset.soc.split("-").map(Number); carregarGrelha();
+    $("#sheet-body").addEventListener("click", (e) => {
+      const tb = e.target.closest("[data-tomada]"); if (tb) { selCalc.tomada = +tb.dataset.tomada; calcular(); return; }
+      const c = e.target.closest("[data-dh]"); if (!c) return;
+      [selCalc.dia, selCalc.hora] = c.dataset.dh.split("-").map(Number);
+      $("#k-dia").value = selCalc.dia; $("#k-hora").value = selCalc.hora; desenharCalc();
     });
-    $("#c-grelha").addEventListener("click", (e) => {
-      const b = e.target.closest("[data-dh]"); if (!b) return;
-      [calc.dia, calc.hora] = b.dataset.dh.split("-").map(Number);
-      $("#c-dia").value = calc.dia; $("#c-hora").value = calc.hora; store.set("calc", calc); desenharCalc();
-    });
+    // histórico: período
+    $$(".filtro-datas [data-per]").forEach((b) => b.addEventListener("click", () => escolherPeriodo(b.dataset.per)));
+    ["#h-de", "#h-ate"].forEach((sel) => $(sel).addEventListener("change", () => {
+      filtroH.per = "custom"; filtroH.de = $("#h-de").value; filtroH.ate = $("#h-ate").value;
+      store.set("hfiltro", filtroH); desenharHist();
+    }));
     // histórico
     for (const k of Object.keys(PAR_DEF)) $("#p-" + k).addEventListener("input", (e) => {
       const v = parseFloat(String(e.target.value).replace(",", ".")); if (isNaN(v)) return;

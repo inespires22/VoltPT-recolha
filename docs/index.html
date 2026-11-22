@@ -13,7 +13,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="app.css?v=5">
+<link rel="stylesheet" href="app.css?v=6">
 </head>
 <body>
 
@@ -43,7 +43,7 @@
   <main>
     <!-- Início -->
     <section id="v-inicio" class="view">
-      <h2 class="sec">Os meus postos</h2>
+      <h2 class="sec">★ Favoritos</h2>
       <div id="meus-postos" class="cards"></div>
       <div id="alertas-box"></div>
       <h2 class="sec">Este mês</h2>
@@ -58,7 +58,7 @@
         <button class="chip" data-f="livres" aria-pressed="false">Só livres</button>
         <button class="chip" data-f="dc" aria-pressed="false">DC rápido</button>
         <button class="chip" data-f="ac" aria-pressed="false">AC</button>
-        <button class="chip" data-f="meus" aria-pressed="false">Os meus</button>
+        <button class="chip" data-f="fav" aria-pressed="false">★ Favoritos</button>
       </div>
       <button id="btn-gps" class="fab" type="button" aria-label="A minha localização">
         <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -70,27 +70,23 @@
       </div>
     </section>
 
-    <!-- Calcular -->
-    <section id="v-calc" class="view" hidden>
-      <h2 class="sec">Quanto vai custar?</h2>
-      <label class="campo">Posto<select id="c-posto"></select></label>
-      <p class="nota" style="margin-top:-6px">Para outro posto: no Mapa, toca nele e escolhe "Quanto custa".</p>
-      <div class="campo" id="c-tomadas-box" hidden><span>Tomada</span><div id="c-tomadas" class="chips-wrap" role="group" aria-label="Tomada"></div></div>
-      <div class="campo"><span>Bateria</span><div id="c-socs" class="chips-wrap" role="group" aria-label="Bateria início e fim"></div></div>
-      <div class="linha2">
-        <label class="campo">Dia<select id="c-dia"></select></label>
-        <label class="campo">Hora de início<select id="c-hora"></select></label>
-      </div>
-      <div id="c-res" class="resultado"></div>
-      <div id="c-melhor" class="melhor"></div>
-      <h3 class="sec2">Semana inteira <span class="muted">(toca numa hora)</span></h3>
-      <div id="c-grelha" class="grelha" role="grid" aria-label="Custo por dia e hora"></div>
-      <p class="nota" id="c-nota"></p>
-    </section>
 
     <!-- Histórico -->
     <section id="v-hist" class="view" hidden>
-      <h2 class="sec">Desde que tenho o carro</h2>
+      <div class="filtro-datas">
+        <div class="chips-wrap" role="group" aria-label="Período">
+          <button class="chip" data-per="mes">Este mês</button>
+          <button class="chip" data-per="mes-1">Mês passado</button>
+          <button class="chip" data-per="3m">3 meses</button>
+          <button class="chip" data-per="ano">Este ano</button>
+          <button class="chip" data-per="tudo">Tudo</button>
+        </div>
+        <div class="linha2">
+          <label class="campo">De<input id="h-de" type="date"></label>
+          <label class="campo">Até<input id="h-ate" type="date"></label>
+        </div>
+      </div>
+      <h2 class="sec" id="h-titulo">Desde que tenho o carro</h2>
       <div id="h-kpis" class="kpis"></div>
       <details class="params">
         <summary>Comparar com um carro a combustão</summary>
@@ -145,7 +141,6 @@
   <nav class="tabbar" aria-label="Secções">
     <button data-v="inicio" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z"/></svg>Início</button>
     <button data-v="mapa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>Mapa</button>
-    <button data-v="calc"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h2M12 12h2M16 12h0M8 16h2M12 16h2"/></svg>Calcular</button>
     <button data-v="hist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M7 16v-5M12 16V7M17 16v-8"/></svg>Histórico</button>
     <button data-v="mais"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>Mais</button>
   </nav>
@@ -155,14 +150,15 @@
   <aside id="sheet" class="sheet" hidden aria-modal="true" role="dialog" aria-labelledby="s-nome">
     <div class="grip" aria-hidden="true"></div>
     <button id="sheet-fechar" class="fechar" type="button" aria-label="Fechar">✕</button>
+    <button id="sheet-fav" class="fechar fav" type="button" aria-label="Marcar como favorito" aria-pressed="false">☆</button>
     <div id="sheet-body"></div>
   </aside>
   <div id="toast" class="toast" role="status" hidden></div>
 </div>
 
-<script src="config.js?v=5"></script>
+<script src="config.js?v=6"></script>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="calc.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="calc.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
