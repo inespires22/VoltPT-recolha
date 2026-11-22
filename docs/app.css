@@ -482,3 +482,7 @@ input[type="datetime-local"] { -webkit-appearance: none; appearance: none; displ
 @media (min-width: 1440px) {
   #v-inicio:not([hidden]) { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
 }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--surface-2); padding: 4px; border-radius: 12px; }
+.seg button { border: 0; background: none; border-radius: 9px; padding: 9px 8px; font: inherit; font-size: 14px; font-weight: 650;
+  color: var(--muted); cursor: pointer; }
+.seg button[aria-checked="true"] { background: var(--surface); color: var(--accent); box-shadow: var(--shadow); }

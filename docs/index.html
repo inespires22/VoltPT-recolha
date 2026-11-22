@@ -13,7 +13,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="app.css?v=19">
+<link rel="stylesheet" href="app.css?v=20">
 </head>
 <body>
 
@@ -141,12 +141,17 @@
           <label class="campo">Bateria à saída (%)<input id="v-soc" type="number" min="10" max="100" step="1" value="90" inputmode="numeric"></label>
           <label class="campo">Chegar ao destino com (%)<input id="v-fim" type="number" min="5" max="80" step="1" value="20" inputmode="numeric"></label>
         </div>
+        <div class="campo"><span>Calcular o consumo com</span>
+          <div class="seg" role="radiogroup" aria-label="Calcular o consumo com">
+            <button type="button" role="radio" data-modo="media" aria-checked="true">A nossa média</button>
+            <button type="button" role="radio" data-modo="vel" aria-checked="false">A velocidade</button>
+          </div></div>
         <div class="linha2">
-          <label class="campo">A nossa média (kWh/100 km)<input id="v-cons" type="number" min="10" max="35" step="0.1" inputmode="decimal"></label>
-          <label class="campo">Velocidade média (km/h)<input id="v-vel" type="number" min="40" max="140" step="1" inputmode="numeric" placeholder="automática"></label>
+          <label class="campo" id="campo-cons">A nossa média (kWh/100 km)<input id="v-cons" type="number" min="10" max="35" step="0.1" inputmode="decimal"></label>
+          <label class="campo" id="campo-vel" hidden>Velocidade média (km/h)<input id="v-vel" type="number" min="40" max="140" step="1" inputmode="numeric" value="110"></label>
+          <label class="campo">Saída<input id="v-hora" type="datetime-local" step="60"></label>
         </div>
-        <label class="campo">Saída<input id="v-hora" type="datetime-local" step="60"></label>
-        <p class="nota" style="margin:0 0 12px">A média de consumo vê-se no painel do carro. Sem velocidade, uso o tempo previsto para a estrada. A hora de saída conta para o preço (vazio / fora de vazio).</p>
+        <p class="nota" id="v-explica" style="margin:0 0 12px"></p>
         <button id="v-calcular" class="btn primary full" type="button">Calcular paragens</button>
         <p id="v-erro" class="calc-erro" role="alert"></p>
       </div>
@@ -201,9 +206,9 @@
   <div id="toast" class="toast" role="status" hidden></div>
 </div>
 
-<script src="config.js?v=19"></script>
+<script src="config.js?v=20"></script>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="calc.js?v=19"></script>
-<script src="app.js?v=19"></script>
+<script src="calc.js?v=20"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>

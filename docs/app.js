@@ -695,7 +695,8 @@
     if (!$("#v-cons").value) $("#v-cons").value = viag.cons || (c ? nf(1).format(+c.consumo).replace(",", ".") : "19");
     if (viag.soc && $("#v-soc").value === "90") $("#v-soc").value = viag.soc;
     if (viag.fim && $("#v-fim").value === "20") $("#v-fim").value = viag.fim;
-    if (viag.vel && !$("#v-vel").value) $("#v-vel").value = viag.vel;
+    if (viag.vel) $("#v-vel").value = viag.vel;
+    escolherModo(viag.modo || "media");
     // hora de saída: agora (arredondada aos 5 min), se ainda não foi escolhida ou já passou
     const h = $("#v-hora"), agora = Math.ceil(Date.now() / 300000) * 300000;
     if (!h.value || h.value < localInput(Date.now() - 60000)) h.value = localInput(agora);
@@ -704,6 +705,22 @@
     $("#sug-origem").hidden = true; $("#sug-destino").hidden = true;
     $("#v-out").hidden = true; $("#v-vazio").hidden = false; $("#v-erro").textContent = "";
     if (mapaV) setTimeout(() => mapaV.invalidateSize(), 50);
+  }
+  // Consumo a partir da velocidade média (estimativa para o B10 em autoestrada):
+  // parte fixa (rolamento, perdas) + resistência do ar, que cresce com o quadrado da velocidade.
+  // ~16,5 kWh/100 km a 90 km/h, ~19,5 a 110, ~21,2 a 120, ~23 a 130.
+  const consumoA = (v) => Math.round((10.5 + 0.000744 * v * v) * 10) / 10;
+  const modoViagem = () => $(".seg [aria-checked=true]")?.dataset.modo || "media";
+  function escolherModo(m) {
+    $$(".seg [data-modo]").forEach((b) => b.setAttribute("aria-checked", b.dataset.modo === m ? "true" : "false"));
+    $("#campo-cons").hidden = m !== "media"; $("#campo-vel").hidden = m !== "vel";
+    explicarModo();
+  }
+  function explicarModo() {
+    const v = +$("#v-vel").value;
+    $("#v-explica").innerHTML = modoViagem() === "vel"
+      ? (v >= 40 && v <= 140 ? `A ${num(v)} km/h o B10 gasta cerca de <b>${nf(1).format(consumoA(v))} kWh/100 km</b>: quanto mais depressa, mais gasta e com menos bateria chegas. O tempo de viagem também usa esta velocidade.` : "Escreve uma velocidade entre 40 e 140 km/h.")
+      : "A média vê-se no painel do carro (consumo). O tempo de viagem é o previsto para a estrada. A hora de saída conta para o preço (vazio / fora de vazio).";
   }
   // instante (ms) do "AAAA-MM-DDTHH:MM" escrito, em hora de Lisboa
   function msDeLocal(v) {
@@ -852,16 +869,18 @@
     const oEl = $("#v-origem"), dEl = $("#v-destino");
     const destinoTxt = dEl.value.trim(), origemTxt = oEl.value.trim();
     const soc = Math.round(+$("#v-soc").value), fim = Math.round(+$("#v-fim").value);
-    const cons = parseFloat(String($("#v-cons").value).replace(",", "."));
-    const velTxt = $("#v-vel").value.trim(), vel = velTxt ? +velTxt : null, horaTxt = $("#v-hora").value;
+    const modo = modoViagem();
+    const vel = modo === "vel" ? +$("#v-vel").value : null, horaTxt = $("#v-hora").value;
+    const consMedia = parseFloat(String($("#v-cons").value).replace(",", "."));
+    const cons = modo === "vel" ? consumoA(vel) : consMedia;
     if (!destinoTxt) { erro.textContent = "Escreve para onde vais."; return; }
     if (!(soc >= 10 && soc <= 100)) { erro.textContent = "A bateria à saída tem de estar entre 10 e 100 %."; return; }
     if (!(fim >= 5 && fim <= 80)) { erro.textContent = "A bateria à chegada tem de estar entre 5 e 80 %."; return; }
+    if (modo === "vel" && !(vel >= 40 && vel <= 140)) { erro.textContent = "A velocidade média tem de estar entre 40 e 140 km/h."; return; }
     if (!(cons >= 10 && cons <= 35)) { erro.textContent = "A média tem de estar entre 10 e 35 kWh/100 km."; return; }
-    if (vel != null && !(vel >= 40 && vel <= 140)) { erro.textContent = "A velocidade média tem de estar entre 40 e 140 km/h (ou deixa vazio)."; return; }
     const saida = horaTxt ? msDeLocal(horaTxt) : Date.now();
     const ponto = (el, txt) => el.dataset.lat ? { lat: +el.dataset.lat, lon: +el.dataset.lon, nome: txt } : null;
-    viag = { soc, fim, cons, vel };          // os locais não ficam guardados
+    viag = { soc, fim, cons: consMedia || viag.cons, vel: vel || viag.vel, modo };   // os locais não ficam guardados
     store.set("viagem", viag);
     const btn = $("#v-calcular"); btn.disabled = true; btn.textContent = "A calcular…";
     try {
@@ -1069,6 +1088,8 @@
     });
     // viagem
     $("#v-calcular").addEventListener("click", calcularViagem);
+    $$(".seg [data-modo]").forEach((b) => b.addEventListener("click", () => escolherModo(b.dataset.modo)));
+    $("#v-vel").addEventListener("input", explicarModo);
     ligarSugestoes($("#v-origem"), $("#sug-origem"), true);
     ligarSugestoes($("#v-destino"), $("#sug-destino"), false);
     $("#v-destino").addEventListener("keydown", (e) => { if (e.key === "Enter" && $("#sug-destino").hidden) { e.preventDefault(); e.target.blur(); calcularViagem(); } });
