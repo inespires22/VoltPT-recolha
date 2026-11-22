@@ -254,7 +254,7 @@
     const rapidos = doMes.filter(ehDC).length;
     const pkAnt = tAnt.kwh ? tAnt.custo / tAnt.kwh : null, pk = t.kwh ? t.custo / t.kwh : null;
     const dif = pk && pkAnt ? (pk / pkAnt - 1) * 100 : null;
-    const ind = (ic, v, l, extra = "") => `<div class="ind"><span class="ind-ic">${ic}</span><div><div class="ind-v">${v}</div><div class="ind-l">${l}</div>${extra}</div></div>`;
+    const ind = (ic, v, l, extra = "") => `<div class="ind"><span class="ind-ic">${ic}</span><div><div class="ind-v">${v}</div><div class="ind-l">${l}</div>${extra || '<div class="ind-x">&nbsp;</div>'}</div></div>`;
     $("#ind-inicio").innerHTML = !t.n ? "" : `<h2 class="sec">${esc(titulo[0].toUpperCase() + titulo.slice(1))} em números</h2><div class="ind-grelha">
       ${ind("⚡", `${num(t.kwh, 1)} kWh`, "energia carregada")}
       ${ind("🛣️", `≈ ${num(t.km)} km`, "de autonomia ganha")}
@@ -305,8 +305,12 @@
     return mlPromessa;
   }
   function fundoMapa(map, escuro) {
+    // O OpenStreetMap antigo só aparece se o mapa novo falhar ou demorar mais de 5 s
+    // (antes aparecia logo e era trocado, o que se via a piscar).
     const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
+      maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' });
+    let usarOsm = () => { if (!map.hasLayer(osm)) osm.addTo(map); };
+    const reserva = setTimeout(() => usarOsm(), 5000);
     // o mapa da viagem é criado antes de ter centro (o fitBounds vem logo a seguir): espera por ele
     carregarMapLibre().then((ml) => new Promise((ok) => map.whenReady(() => ok(ml)))).then((ml) => {
       const el = map.getContainer(), caixa = document.createElement("div");
@@ -316,11 +320,11 @@
       try {
         gl = new ml.Map({ container: caixa, style: `https://tiles.openfreemap.org/styles/${escuro ? "dark" : "liberty"}`,
                           center: [c.lng, c.lat], zoom: map.getZoom() - 1, interactive: false, attributionControl: false, fadeDuration: 0 });
-      } catch { caixa.remove(); return; }                       // sem WebGL: fica o OpenStreetMap
-      const desistir = () => { if (pronto) return; try { gl.remove(); } catch { /* */ } caixa.remove(); };
+      } catch { caixa.remove(); usarOsm(); return; }            // sem WebGL: fica o OpenStreetMap
+      const desistir = () => { if (pronto) return; try { gl.remove(); } catch { /* */ } caixa.remove(); usarOsm(); };
       gl.on("load", () => {
         if (!caixa.clientHeight) { desistir(); return; }       // sem tamanho: não se vê, fica o OpenStreetMap
-        pronto = true; el.classList.add("com-vetorial"); map.removeLayer(osm); gl.resize();
+        pronto = true; clearTimeout(reserva); el.classList.add("com-vetorial"); if (map.hasLayer(osm)) map.removeLayer(osm); gl.resize();
         map.attributionControl.addAttribution('<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> · © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>');
         acompanhar();
       });
@@ -331,7 +335,7 @@
       map.on("move zoom viewreset", acompanhar);
       map.on("zoomanim", (e) => gl.easeTo({ center: [e.center.lng, e.center.lat], zoom: e.zoom - 1, duration: 250, easing: (t) => 1 - (1 - t) * (1 - t) }));
       map.on("resize", () => { gl.resize(); acompanhar(); });
-    }).catch(() => { /* fica o OpenStreetMap */ });
+    }).catch(() => usarOsm());
   }
   // pinos dos postos: cor = estado; ⚡ = rápido (DC); estrela = favorito
   const SVG_RAIO = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12z" fill="currentColor"/></svg>';
@@ -1273,6 +1277,7 @@
 
   ligarEventos();
   prepararNativos();
+  setTimeout(() => carregarMapLibre().catch(() => {}), 1500);   // o Mapa já abre com o fundo novo
   if (!CFG.supabaseKey || CFG.supabaseKey.startsWith("COLA_")) {
     $("#login").hidden = false;
     $("#login-erro").textContent = "Falta a chave pública do Supabase no config.js.";
