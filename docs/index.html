@@ -13,7 +13,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="app.css?v=12">
+<link rel="stylesheet" href="app.css?v=14">
 </head>
 <body>
 
@@ -60,15 +60,16 @@
     <section id="v-mapa" class="view view-mapa" hidden>
       <div id="map" class="map" role="region" aria-label="Mapa de postos"></div>
       <div class="map-chips" role="group" aria-label="Filtros">
-        <button class="chip" data-f="livres" aria-pressed="false">Só livres</button>
-        <button class="chip" data-f="dc" aria-pressed="false">DC rápido</button>
-        <button class="chip" data-f="ac" aria-pressed="false">AC</button>
+        <button class="chip" data-f="livres" aria-pressed="false">🟢 Só livres</button>
+        <button class="chip" data-f="dc" aria-pressed="false">⚡ Rápidos</button>
+        <button class="chip" data-f="ac" aria-pressed="false">🔌 AC</button>
         <button class="chip" data-f="fav" aria-pressed="false">★ Favoritos</button>
       </div>
       <button id="btn-gps" class="fab" type="button" aria-label="A minha localização">
         <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
       </button>
       <div id="map-aviso" class="map-aviso" hidden></div>
+      <div id="map-resumo" class="map-resumo" hidden></div>
       <div class="legenda">
         <span><i class="st st-Livre"></i>Livre</span><span><i class="st st-Ocupado"></i>Ocupado</span>
         <span><i class="st st-Avariado"></i>Avariado</span><span><i class="st st-Sem"></i>Sem dados</span>
@@ -91,7 +92,8 @@
           <label class="campo">Até<input id="h-ate" type="date"></label>
         </div>
       </div>
-      <h2 class="sec" id="h-titulo">Desde que tenho o carro</h2>
+      <div id="h-hero" class="hero hero-hist"></div>
+      <span id="h-titulo" hidden></span>
       <div id="h-kpis" class="kpis"></div>
       <div class="comb">
         <div id="h-comb"></div>
@@ -112,34 +114,47 @@
 
     <!-- Mais -->
     <section id="v-mais" class="view" hidden>
-      <h2 class="sec">Planear uma viagem</h2>
-      <div class="linha2">
-        <label class="campo">Distância (km)<input id="v-dist" type="number" min="10" max="2000" step="10" value="300" inputmode="numeric"></label>
-        <label class="campo">Bateria à partida (%)<input id="v-soc" type="number" min="10" max="100" step="5" value="90" inputmode="numeric"></label>
+      <!-- Planear viagem -->
+      <div class="hero hero-mini">
+        <div class="h-top"><span>🧭 Planear viagem</span></div>
+        <p class="h-sub" style="margin:6px 0 12px">Diz de onde sais e para onde vais: eu digo onde parar a carregar e quanto custa.</p>
+        <div class="rota-campos">
+          <label class="rota-campo"><span>De</span>
+            <input id="v-origem" type="text" placeholder="📍 A minha localização" autocomplete="off" enterkeyhint="next"></label>
+          <label class="rota-campo"><span>Para</span>
+            <input id="v-destino" type="text" placeholder="Ex.: Porto, Coimbra, Rua …" autocomplete="off" enterkeyhint="go"></label>
+        </div>
       </div>
-      <div class="linha2">
-        <label class="campo">Potência média DC (kW)<input id="v-kw" type="number" min="20" max="170" step="5" value="110" inputmode="numeric"></label>
-        <label class="campo">Preço DC (€/kWh)<input id="v-preco" type="number" min="0.1" max="1.5" step="0.01" value="0.55" inputmode="decimal"></label>
+      <div class="cartao">
+        <div class="linha2">
+          <label class="campo">Bateria à saída (%)<input id="v-soc" type="number" min="10" max="100" step="1" value="90" inputmode="numeric"></label>
+          <label class="campo">A nossa média (kWh/100 km)<input id="v-cons" type="number" min="10" max="35" step="0.1" inputmode="decimal"></label>
+        </div>
+        <p class="nota" style="margin:0 0 12px">A média vê-se no painel do carro (consumo). Em autoestrada costuma ser mais alta.</p>
+        <button id="v-calcular" class="btn primary full" type="button">Calcular paragens</button>
+        <p id="v-erro" class="calc-erro" role="alert"></p>
       </div>
-      <div id="v-res" class="kpis"></div>
-      <p class="nota">Chegar com 10 %; cada paragem de 10 % a 80 %. Num posto de 50 kW usa ~45 kW de média.</p>
+      <div id="v-out" hidden>
+        <div id="v-res" class="kpis"></div>
+        <div id="viagem-mapa" class="mapa-viagem" role="region" aria-label="Mapa da viagem"></div>
+        <div id="v-paragens" class="paragens"></div>
+        <a id="v-gmaps" class="btn full" target="_blank" rel="noopener">🧭 Abrir a rota no Google Maps</a>
+        <p class="nota" id="v-nota"></p>
+      </div>
 
-      <h2 class="sec">Avisos no telemóvel</h2>
-      <p class="nota">Os avisos de "posto livre" chegam pela app gratuita <b>ntfy</b>. Instala-a, subscreve o tópico abaixo e grava-o aqui (as duas podem subscrever o mesmo).</p>
-      <div class="linha2 ntfy">
-        <input id="ntfy-topico" type="text" autocomplete="off" spellcheck="false" aria-label="Tópico ntfy">
-        <button id="ntfy-gerar" class="btn" type="button">Gerar</button>
+      <!-- Avisos -->
+      <div class="cartao">
+        <h2 class="cartao-tit">🔔 Avisos de posto livre</h2>
+        <div id="ntfy-box"></div>
       </div>
-      <div class="linha2">
-        <button id="ntfy-gravar" class="btn primary" type="button">Gravar tópico</button>
-        <a id="ntfy-abrir" class="btn" target="_blank" rel="noopener">Abrir no ntfy</a>
-      </div>
-      <p id="ntfy-msg" class="nota" role="status"></p>
 
-      <h2 class="sec">Conta</h2>
-      <p class="nota" id="conta-info"></p>
-      <button id="btn-sair" class="btn" type="button">Sair</button>
-      <p class="creditos">Estados: NAP Portugal (IMT) / MOBI.E. Mapa: © OpenStreetMap.</p>
+      <!-- Conta -->
+      <div class="cartao">
+        <h2 class="cartao-tit">👤 Conta</h2>
+        <p class="nota" id="conta-info" style="margin-top:0"></p>
+        <button id="btn-sair" class="btn full" type="button">Sair</button>
+      </div>
+      <p class="creditos">Estados: NAP Portugal (IMT) / MOBI.E · Mapa e moradas: © OpenStreetMap · Rotas: OSRM.</p>
     </section>
   </main>
 
@@ -163,9 +178,9 @@
   <div id="toast" class="toast" role="status" hidden></div>
 </div>
 
-<script src="config.js?v=12"></script>
+<script src="config.js?v=14"></script>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="calc.js?v=12"></script>
-<script src="app.js?v=12"></script>
+<script src="calc.js?v=14"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

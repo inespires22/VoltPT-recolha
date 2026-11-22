@@ -152,12 +152,14 @@
   }
   const nomeMes = (k, ano) => { const [a, m] = k.split("-"); return new Date(+a, +m - 1, 1).toLocaleDateString("pt-PT", ano ? { month: "long", year: "numeric" } : { month: "long" }); };
 
+  let mesInicio = null;
   function desenharInicio() {
     const i = dados.inicio, h = dados.hist; if (!i) return;
     $("#hero").classList.remove("esqueleto");
     const todos = h?.carregamentos || [];
     const mesAtual = diaLisboa(new Date().toISOString()).slice(0, 7);
-    const doMes = todos.filter((c) => diaLisboa(c.inicio).startsWith(mesAtual));
+    const mesVer = mesInicio || mesAtual;                 // mês escolhido nas barras (por omissão, o atual)
+    const doMes = todos.filter((c) => diaLisboa(c.inicio).startsWith(mesVer));
     const t = h ? somar(doMes) : { n: i.mes?.carregamentos || 0, custo: +i.mes?.custo || 0, kwh: +i.mes?.kwh || 0, km: 0 };
     const meses = [];
     const primeiro = todos.length ? diaLisboa(todos[todos.length - 1].inicio).slice(0, 7) : mesAtual;
@@ -168,11 +170,11 @@
     const porMes = meses.map((m) => todos.filter((c) => diaLisboa(c.inicio).startsWith(m)).reduce((a, c) => a + (+c.custo || 0), 0));
     const max = Math.max(...porMes, 1);
     const cmp = vsCombustao(t);
-    const titulo = nomeMes(mesAtual);
+    const titulo = nomeMes(mesVer, mesVer.slice(0, 4) !== mesAtual.slice(0, 4));
     $("#hero").innerHTML = `
       <div class="h-top"><span>${esc(titulo[0].toUpperCase() + titulo.slice(1))}</span>${i.carro ? `<span class="h-carro">🚗 ${esc(i.carro.nome)}</span>` : ""}</div>
       <div class="h-val">${eur(t.custo)}</div>
-      <div class="h-sub">${t.n ? `${num(t.n)} carregamento${t.n === 1 ? "" : "s"} · ${num(t.kwh, 1)} kWh${t.km ? ` · ≈ ${num(t.km)} km` : ""}` : "Ainda não carregaste este mês"}</div>
+      <div class="h-sub">${t.n ? `${num(t.n)} carregamento${t.n === 1 ? "" : "s"} · ${num(t.kwh, 1)} kWh${t.km ? ` · ≈ ${num(t.km)} km` : ""}` : mesVer === mesAtual ? "Ainda não carregaste este mês" : "Sem carregamentos neste mês"}</div>
       ${t.n ? `<div class="h-chips">
         ${t.kwh ? `<span class="h-chip">${nf(3).format(t.custo / t.kwh)} €/kWh</span>` : ""}
       </div>` : ""}
@@ -181,11 +183,11 @@
         <span class="h-comb-c">Carro que gasta ${nf(1).format(par.consumo)} L/100 km, ${cmp.nome} a ${nf(2).format(par.preco)} €/L · ${num(cmp.litros)} L para os mesmos ${num(t.km)} km · mudar ›</span>
       </button>` : ""}
       ${h ? `<div class="h-barras" style="grid-template-columns:repeat(${Math.max(meses.length, 3)},1fr)" aria-label="Gasto nos últimos 6 meses">${meses.map((m, k) => `
-        <button class="h-b${k === meses.length - 1 ? " atual" : ""}" data-mes="${m}" aria-label="Ver ${esc(nomeMes(m, true))} no Histórico: ${eur(porMes[k])}">
+        <button class="h-b${m === mesVer ? " atual" : ""}" data-mes="${m}" aria-pressed="${m === mesVer}" aria-label="${esc(nomeMes(m, true))}: ${eur(porMes[k])}">
           <span class="h-bv">${porMes[k] ? Math.round(porMes[k]) + "€" : ""}</span>
           <i style="height:${Math.max(4, 100 * porMes[k] / max).toFixed(0)}%"></i>
           <span class="h-bl">${esc(nomeMes(m).slice(0, 3))}</span></button>`).join("")}</div>
-      <div class="h-dica">Toca num mês para ver os carregamentos</div>` : ""}`;
+      <div class="h-dica">${mesVer === mesAtual ? "Toca num mês para ver os números desse mês" : `<button class="h-voltar" data-mes="${mesAtual}">‹ Voltar a ${esc(nomeMes(mesAtual))}</button>`}</div>` : ""}`;
 
     const mp = i.meus_postos || [];
     $("#meus-postos").innerHTML = mp.length ? mp.map(cartaoPosto).join("")
@@ -295,6 +297,11 @@
       m.bindTooltip(`${esc(p[1])} · ${esc(estadoTexto(p[4]))}`, { direction: "top", offset: [0, -6] });
       camada.addLayer(m);
     }
+    const livres = lista.filter((p) => p[4] === "Livre").length, rapidos = lista.filter((p) => /DC/.test(p[8]) && p[7] >= 40).length;
+    $("#map-resumo").innerHTML = lista.length
+      ? `<b>${num(lista.length)}</b> posto${lista.length === 1 ? "" : "s"} aqui · <b class="t-livre">${num(livres)}</b> livre${livres === 1 ? "" : "s"}${rapidos ? ` · ${num(rapidos)} rápido${rapidos === 1 ? "" : "s"}` : ""}`
+      : "Nenhum posto aqui com estes filtros";
+    $("#map-resumo").hidden = false;
   }
 
   // ------------------------------------------------------------------ detalhe do posto (folha)
@@ -403,8 +410,11 @@
     const id = $("#sheet-body").dataset.id;
     try {
       const r = await rpc("voltpt_alerta_criar", { p_posto: id, p_minutos: minutos });
-      toast(r.ntfy ? `Aviso ligado (${r.lugar}.º na fila).` : "Aviso ligado. Configura o ntfy em Mais para o receberes.", 3500);
+      toast(`Aviso ligado (${r.lugar}.º na fila).`, 3000);
       atualizarFolha(id); carregarInicio().catch(() => {});
+      $("#s-extra").innerHTML = r.ntfy ? "" : `<div class="melhor" style="margin-top:12px">
+        <b>Falta um passo para o aviso te chegar ao telemóvel.</b> O VoltPT avisa através da app gratuita ntfy (é só para receber notificações).
+        <button class="btn primary full" style="margin-top:10px" data-ir="avisos">Ligar avisos (1 minuto)</button></div>`;
     } catch (e) { toast(e.message); }
   }
   async function cancelarAviso(id) {
@@ -607,7 +617,8 @@
   }
   function desenharHist() {
     const h = dados.hist;
-    if (!h) { $("#h-kpis").innerHTML = `<div class="kpi esqueleto"></div>`.repeat(4); return; }
+    if (!h) { $("#h-hero").innerHTML = ""; $("#h-hero").classList.add("esqueleto"); $("#h-kpis").innerHTML = `<div class="kpi esqueleto"></div>`.repeat(2); return; }
+    $("#h-hero").classList.remove("esqueleto");
     if (filtroH.per !== "custom") [filtroH.de, filtroH.ate] = intervalo(filtroH.per);
     $$(".filtro-datas [data-per]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.per === filtroH.per ? "true" : "false"));
     $("#h-de").value = filtroH.de; $("#h-ate").value = filtroH.ate;
@@ -618,9 +629,13 @@
     $("#h-titulo").textContent = !filtroH.de && !filtroH.ate ? "Desde que tenho o carro"
       : `${filtroH.de ? fmtD(filtroH.de) : "início"} → ${filtroH.ate ? fmtD(filtroH.ate) : "hoje"}`;
     const cmp = vsCombustao(t);
-    $("#h-kpis").innerHTML = !t.n ? `<div class="vazio-msg" style="grid-column:1/-1">Sem carregamentos neste período.</div>` :
-      kpi(eur(t.custo), `${num(t.n)} carregamento${t.n === 1 ? "" : "s"}`) + kpi(num(t.kwh, 1) + " kWh", `≈ ${num(t.km)} km`) +
-      kpi(t.kwh ? nf(3).format(t.custo / t.kwh) + " €" : "—", "por kWh") + kpi(t.km ? eur(t.custo / t.km * 100) : "—", "por 100 km") +
+    $("#h-hero").innerHTML = `
+      <div class="h-top"><span>${esc($("#h-titulo").textContent)}</span></div>
+      <div class="h-val">${eur(t.custo)}</div>
+      <div class="h-sub">${t.n ? `${num(t.n)} carregamento${t.n === 1 ? "" : "s"} · ${num(t.kwh, 1)} kWh · ≈ ${num(t.km)} km` : "Sem carregamentos neste período"}</div>
+      ${t.n ? `<div class="h-chips">${t.kwh ? `<span class="h-chip">${nf(3).format(t.custo / t.kwh)} €/kWh</span>` : ""}
+        ${t.km ? `<span class="h-chip">${eur(t.custo / t.km * 100)} / 100 km</span>` : ""}</div>` : ""}`;
+    $("#h-kpis").innerHTML = !t.n ? "" :
       kpi(t.custo ? num(100 * t.tempo / t.custo) + " %" : "—", "do custo foi tempo (ao minuto)") +
       kpi(eur(t.tar_fv * 0.78), "a menos se carregasses só em vazio");
     const maior = Math.max(cmp.custo, t.custo, 0.01);
@@ -653,41 +668,211 @@
         <span><i class="c-fixo"></i>Ativação ${eur(m.fixo)}</span><span><i class="c-taxas"></i>Taxas ${eur(m.taxas)}</span></div>
         <div class="nota" style="margin:6px 0 0">${num(m.n)} carregamentos · ${num(m.kwh, 1)} kWh · ≈ ${num(m.km)} km</div></div>`;
     }).join("") : `<div class="vazio-msg">Sem carregamentos neste período.</div>`;
-    $("#h-lista").innerHTML = lista.map((c) => `<div class="sessao">
-        <div class="s1">${esc(c.posto)}${c.so_vazio ? '<span class="tag">vazio</span>' : ""}${c.tipo === "DC" ? '<span class="tag">DC</span>' : ""}</div>
-        <div class="s3">${eur(c.custo)}</div>
-        <div class="s2">${dataCurta(c.inicio)} ${horaCurta(c.inicio)} · ${num(c.kwh, 1)} kWh · ${duracao(c.min)} · ≈ ${num(c.km)} km</div>
-        <div class="s2" style="text-align:right">${c.kwh ? nf(3).format(c.custo / c.kwh) + " €/kWh" : ""}</div></div>`).join("");
+    $("#h-lista").innerHTML = lista.length ? lista.map((c) => `<div class="sessao">
+        <span class="s-ic${c.tipo === "DC" ? " dc" : ""}" aria-hidden="true">${c.tipo === "DC" ? "⚡" : "🔌"}</span>
+        <div class="s-corpo"><div class="s1">${esc(c.posto)}${c.so_vazio ? '<span class="tag">vazio</span>' : ""}</div>
+          <div class="s2">${dataCurta(c.inicio)} ${horaCurta(c.inicio)} · ${num(c.kwh, 1)} kWh · ${duracao(c.min)} · ≈ ${num(c.km)} km</div></div>
+        <div class="s-val">${eur(c.custo)}<small>${c.kwh ? nf(3).format(c.custo / c.kwh) + " €/kWh" : ""}</small></div></div>`).join("")
+      : `<div class="vazio-msg">Sem carregamentos neste período.</div>`;
   }
 
-  // ------------------------------------------------------------------ mais: viagem, ntfy, conta
+  // ------------------------------------------------------------------ mais: viagem, avisos, conta
+  let viag = store.get("viagem", {}), mapaV = null, camadaV = null, pedidoViagem = 0;
   function abrirMais() {
-    calcularViagem();
-    const i = dados.inicio || {};
-    $("#ntfy-topico").value = i.ntfy || store.get("ntfy_rascunho", "");
-    atualizarLinkNtfy();
+    const c = dados.inicio?.carro;
+    if (!$("#v-cons").value) $("#v-cons").value = viag.cons || (c ? nf(1).format(+c.consumo).replace(",", ".") : "19");
+    if (viag.soc && $("#v-soc").value === "90") $("#v-soc").value = viag.soc;
+    if (viag.destino && !$("#v-destino").value) $("#v-destino").value = viag.destino;
+    if (viag.origem && !$("#v-origem").value) $("#v-origem").value = viag.origem;
+    desenharNtfy();
     $("#conta-info").textContent = sessao?.email ? `Entraste como ${sessao.email}.` : "";
+    if (mapaV) setTimeout(() => mapaV.invalidateSize(), 50);
   }
-  function calcularViagem() {
-    const c = dados.inicio?.carro || { bateria_kwh: 65, consumo: 19 };
-    const dist = +$("#v-dist").value || 0, soc = +$("#v-soc").value || 0, kw = +$("#v-kw").value || 1, preco = +$("#v-preco").value || 0;
-    const energia = dist * c.consumo / 100;
-    const disponivel = c.bateria_kwh * Math.max(0, soc - 10) / 100;
-    const carregar = Math.max(0, energia - disponivel);
-    const paragens = Math.ceil(carregar / (c.bateria_kwh * 0.7));
-    const minutos = carregar / 0.95 / kw * 60;
-    $("#v-res").innerHTML = kpi(num(energia, 1) + " kWh", "a viagem gasta") + kpi(num(paragens), paragens === 1 ? "paragem" : "paragens") +
-      kpi(carregar ? duracao(minutos) : "0h00", "a carregar") + kpi(eur(carregar / 0.95 * preco), "custo das paragens");
+  const distKm = (a, b) => {   // [lat, lon]
+    const r = Math.PI / 180, dLa = (b[0] - a[0]) * r, dLo = (b[1] - a[1]) * r;
+    const h = Math.sin(dLa / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLo / 2) ** 2;
+    return 12742 * Math.asin(Math.sqrt(h));
+  };
+  async function geocodificar(q) {
+    const u = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=pt,es&accept-language=pt&q=" + encodeURIComponent(q);
+    let r;
+    try { r = await fetch(u, { headers: { Accept: "application/json" } }); } catch { throw new Error("Sem ligação ao serviço de moradas. Tenta outra vez."); }
+    if (!r.ok) throw new Error("O serviço de moradas não respondeu. Tenta daqui a pouco.");
+    const j = await r.json();
+    if (!j.length) throw new Error(`Não encontrei "${q}". Experimenta escrever a localidade (ex.: "Coimbra").`);
+    return { lat: +j[0].lat, lon: +j[0].lon, nome: j[0].display_name.split(",").slice(0, 2).join(",").trim() };
   }
-  function atualizarLinkNtfy() {
-    const t = $("#ntfy-topico").value.trim();
-    const a = $("#ntfy-abrir");
-    if (t) { a.href = `https://ntfy.sh/${encodeURIComponent(t)}`; a.removeAttribute("aria-disabled"); }
-    else { a.removeAttribute("href"); a.setAttribute("aria-disabled", "true"); }
+  function minhaPosicao() {
+    return new Promise((ok, ko) => {
+      if (!navigator.geolocation) return ko(new Error("O browser não dá a localização: escreve de onde sais."));
+      navigator.geolocation.getCurrentPosition((p) => ok({ lat: p.coords.latitude, lon: p.coords.longitude, nome: "A minha localização" }),
+        () => ko(new Error("Sem acesso à localização: escreve de onde sais.")), { timeout: 10000, maximumAge: 300000 });
+    });
   }
+  async function rotaCarro(a, b) {
+    const u = `https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=full&geometries=geojson`;
+    let r;
+    try { r = await fetch(u); } catch { throw new Error("Sem ligação ao serviço de rotas. Tenta outra vez."); }
+    const j = r.ok ? await r.json() : null;
+    if (!j || j.code !== "Ok" || !j.routes?.length) throw new Error("Não consegui calcular a rota entre esses dois sítios.");
+    const rt = j.routes[0];
+    return { km: rt.distance / 1000, min: rt.duration / 60, coords: rt.geometry.coordinates.map(([lo, la]) => [la, lo]) };
+  }
+  function amostrarRota(coords, total) {
+    const passo = Math.max(2, total / 1400), out = [];
+    let acc = 0, prox = 0;
+    for (let i = 0; i < coords.length; i++) {
+      if (i) acc += distKm(coords[i - 1], coords[i]);
+      if (acc >= prox || i === coords.length - 1) { out.push([+coords[i][0].toFixed(5), +coords[i][1].toFixed(5), +acc.toFixed(1)]); prox = acc + passo; }
+    }
+    return out;
+  }
+  // Paragens: o posto rápido mais longe que ainda alcanças (chegando com >= 12 %), carregando
+  // só o preciso para o resto da viagem (no máximo 80 %, onde a carga rápida abranda).
+  function planearParagens(postos, total, soc0, cap, cons) {
+    const RES = 12, ALVO = 80, kmPorPct = cap / cons;          // km por 1 % de bateria
+    let pos = 0, soc = soc0, desvioAnt = 0;
+    const paragens = [];
+    for (let g = 0; g < 12; g++) {
+      if (soc - (total - pos) / kmPorPct >= RES) break;          // chega ao destino
+      const alcance = pos + (soc - RES) / 1 * kmPorPct;
+      const cand = postos.filter((p) => p.km > pos + 10 && p.km + p.desvio <= alcance);
+      if (!cand.length) return { paragens, falha: true, pos, soc };
+      const longe = Math.max(...cand.map((p) => p.km));
+      const nota = (p) => Math.min(p.kw, 150) / 150 * 30 + (p.livres > 0 ? 12 : 0) + (p.tem_preco ? 8 : 0) + (p.km - longe + 40) / 40 * 25;
+      const p = cand.filter((x) => x.km >= longe - 40).sort((a, b) => nota(b) - nota(a))[0];
+      const chegada = soc - (p.km - pos + p.desvio + desvioAnt) / kmPorPct;
+      const precisa = RES + (total - p.km + p.desvio) / kmPorPct + 4;
+      const sai = Math.min(ALVO, Math.max(Math.ceil(precisa), Math.ceil(chegada) + 5));
+      paragens.push(Object.assign({}, p, { chegada: Math.max(0, Math.round(chegada)), sai }));
+      pos = p.km; soc = sai; desvioAnt = p.desvio;
+    }
+    return { paragens, chegadaFinal: Math.round(soc - (total - pos + desvioAnt) / kmPorPct) };
+  }
+  async function custoParagem(p, inicio) {
+    try {
+      const t = await rpc("voltpt_tarifa", { p_posto: p.id });
+      const dc = opcoesTomada(t).filter((x) => x.tipo === "DC").sort((a, b) => b.kw_util - a.kw_util)[0];
+      const car = t.carro;
+      const carro = { curva: car.curva.map(([a, b]) => [+a, +b]), bateria_kwh: +car.bateria_kwh, max_ac_kw: +car.max_ac_kw,
+                      max_dc_kw: +car.max_dc_kw, consumo: +car.consumo, eff_ac: +car.eff_ac || 0.9 };
+      const tomada = { tipo: "DC", kw_util: dc ? +dc.kw_util : +p.kw };
+      const opc = dc ? (dc.manual || VoltCalc.tarifaNap(dc.nap)) : { elements: [], prices_include_vat: false };
+      const adhoc = !!(dc && dc.manual && dc.manual.party === "ADHOC");
+      const r = VoltCalc.estimar({ carro, tomada, opc, regime: adhoc ? "ADHOC" : "MOBIE", ceme: t.ceme, taxas: t.taxas,
+                                   si: p.chegada, sa: p.sai, inicio });
+      return { min: r.dur_min, custo: dc ? r.custo : null, kwh: r.kwh };
+    } catch { return { min: null, custo: null }; }
+  }
+  async function calcularViagem() {
+    const meu = ++pedidoViagem, erro = $("#v-erro");
+    erro.textContent = "";
+    const destinoTxt = $("#v-destino").value.trim(), origemTxt = $("#v-origem").value.trim();
+    const soc = Math.round(+$("#v-soc").value), cons = parseFloat(String($("#v-cons").value).replace(",", "."));
+    if (!destinoTxt) { erro.textContent = "Escreve para onde vais."; return; }
+    if (!(soc >= 10 && soc <= 100)) { erro.textContent = "A bateria à saída tem de estar entre 10 e 100 %."; return; }
+    if (!(cons >= 10 && cons <= 35)) { erro.textContent = "A média tem de estar entre 10 e 35 kWh/100 km."; return; }
+    viag = { origem: origemTxt, destino: destinoTxt, soc, cons }; store.set("viagem", viag);
+    const btn = $("#v-calcular"); btn.disabled = true; btn.textContent = "A calcular…";
+    try {
+      const [a, b] = await Promise.all([origemTxt ? geocodificar(origemTxt) : minhaPosicao(), geocodificar(destinoTxt)]);
+      const rota = await rotaCarro(a, b);
+      if (meu !== pedidoViagem) return;
+      const postos = await rpc("voltpt_postos_rota", { p_pontos: amostrarRota(rota.coords, rota.km) });
+      const cap = +(dados.inicio?.carro?.bateria_kwh || 65);
+      const plano = planearParagens(postos || [], rota.km, soc, cap, cons);
+      // tempo e custo de cada paragem (à hora a que lá chegas)
+      let relogio = Date.now(), kmAnt = 0;
+      for (const p of plano.paragens) {
+        relogio += (p.km - kmAnt) / rota.km * rota.min * 60000; kmAnt = p.km;
+        Object.assign(p, await custoParagem(p, relogio));
+        relogio += (p.min || 0) * 60000;
+      }
+      if (meu !== pedidoViagem) return;
+      desenharViagem(a, b, rota, plano);
+    } catch (e) { erro.textContent = e.message; }
+    finally { btn.disabled = false; btn.textContent = "Calcular paragens"; }
+  }
+  function desenharViagem(a, b, rota, plano) {
+    $("#v-out").hidden = false;
+    const ps = plano.paragens, minCarga = ps.reduce((s, p) => s + (p.min || 0), 0);
+    const custos = ps.map((p) => p.custo), semPreco = custos.some((c) => c == null);
+    const total = custos.reduce((s, c) => s + (c || 0), 0);
+    $("#v-res").innerHTML = kpi(`${num(rota.km)} km`, `${duracao(rota.min)} a conduzir`) +
+      kpi(plano.falha ? "—" : num(ps.length), plano.falha ? "não dá para planear" : ps.length === 1 ? "paragem" : ps.length ? "paragens" : "paragens: não precisas") +
+      kpi(ps.length ? duracao(minCarga) : "0h00", "a carregar") +
+      kpi(ps.length ? (semPreco ? "≈ " : "") + eur(total) : "0,00 €", semPreco ? "a carregar (há postos sem preço)" : "a carregar, com IVA");
+    // lista
+    const linhas = [`<div class="pg pg-ponta"><span class="pg-ic">🏠</span><div><b>${esc(a.nome)}</b><div class="muted">Saída com ${viag.soc} %</div></div></div>`];
+    ps.forEach((p, k) => {
+      const est = !p.com_estado ? `<span class="pill Sem">Sem dados</span>` : p.livres > 0 ? `<span class="pill Livre">${p.livres} livre${p.livres > 1 ? "s" : ""}</span>` : `<span class="pill Ocupado">Ocupado</span>`;
+      linhas.push(`<button class="pg pg-posto" data-posto="${esc(p.id)}"><span class="pg-ic n">${k + 1}</span>
+        <div class="pg-corpo"><div class="pg-nome">${esc(p.posto)}${p.terra && !String(p.posto).includes(p.terra) ? ` <span class="muted">· ${esc(p.terra)}</span>` : ""}</div>
+          <div class="muted">km ${num(p.km)}${p.desvio >= 0.5 ? ` · desvio ${nf(1).format(p.desvio)} km` : ""} · até ${num(p.kw)} kW${p.operador ? ` · ${esc(p.operador)}` : ""}</div>
+          <div class="pg-carga">Chegas com <b>${p.chegada} %</b> → carregas até <b>${p.sai} %</b>${p.min ? ` · ${duracao(p.min)}` : ""} · ${p.custo != null ? `<b>${eur(p.custo)}</b>` : "sem preço publicado"}</div></div>
+        ${est}</button>`);
+    });
+    if (plano.falha) linhas.push(`<div class="pg aviso">⚠️ Não encontrei posto rápido (≥ 50 kW) ao alcance depois do km ${num(plano.pos)}. Sai com mais bateria ou escolhe outro caminho.</div>`);
+    linhas.push(`<div class="pg pg-ponta"><span class="pg-ic">🏁</span><div><b>${esc(b.nome)}</b><div class="muted">${plano.falha ? "" : `Chegas com ≈ ${plano.chegadaFinal} %`}</div></div></div>`);
+    $("#v-paragens").innerHTML = linhas.join("");
+    $("#v-nota").textContent = "Paragens em postos rápidos (≥ 50 kW) a menos de 3 km da rota, chegando a cada um com pelo menos 12 % e carregando no máximo até 80 %. Custo com o preço do operador + o teu contrato + taxas, à hora a que lá chegas. Toca num posto para ver o estado e a calculadora.";
+    const ll = (p) => `${(+p.lat).toFixed(5)},${(+p.lon).toFixed(5)}`;
+    $("#v-gmaps").href = `https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=${ll(a)}&destination=${ll(b)}` +
+      (ps.length ? `&waypoints=${encodeURIComponent(ps.map(ll).join("|"))}` : "");
+    // mapa
+    if (!mapaV) {
+      mapaV = L.map("viagem-mapa", { zoomControl: false, attributionControl: true, scrollWheelZoom: false });
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapaV);
+      camadaV = L.layerGroup().addTo(mapaV);
+    }
+    camadaV.clearLayers();
+    const linha = L.polyline(rota.coords, { color: "#0f766e", weight: 5, opacity: .85 }).addTo(camadaV);
+    const pino = (txt, cls) => L.divIcon({ className: "", html: `<span class="pino ${cls}">${txt}</span>`, iconSize: [28, 28], iconAnchor: [14, 14] });
+    L.marker([a.lat, a.lon], { icon: pino("🏠", "ponta") }).addTo(camadaV);
+    L.marker([b.lat, b.lon], { icon: pino("🏁", "ponta") }).addTo(camadaV);
+    ps.forEach((p, k) => L.marker([p.lat, p.lon], { icon: pino(k + 1, "num") }).on("click", () => abrirPosto(p.id)).addTo(camadaV));
+    setTimeout(() => { mapaV.invalidateSize(); mapaV.fitBounds(linha.getBounds(), { padding: [24, 24] }); }, 60);
+    $("#v-res").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // avisos (ntfy)
   function gerarTopico() {
     const a = new Uint8Array(9); crypto.getRandomValues(a);
     return "voltpt-" + Array.from(a, (b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
+  }
+  function desenharNtfy(msg) {
+    const t = dados.inicio?.ntfy;
+    const passosApp = `<ol class="passos">
+        <li>Instala a app gratuita <b>ntfy</b>: <a href="https://apps.apple.com/app/id1625396347" target="_blank" rel="noopener">App Store</a> · <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener">Google Play</a>. Quando ela pedir, deixa-a enviar notificações.</li>
+        <li>Na app, toca em <b>+</b>, escreve o nome do canal ${t ? `(<code>${esc(t)}</code>)` : ""} e toca em <b>Subscribe</b>.</li>
+        <li>Volta aqui e toca em <b>Enviar teste</b>: deve chegar uma notificação.</li></ol>`;
+    $("#ntfy-box").innerHTML = !t ? `
+      <p class="nota" style="margin-top:0">Quando tocas em <b>“Avisa-me quando ficar livre”</b>, o VoltPT vigia o posto e manda-te uma notificação mal fique livre.
+        Uma página da internet não consegue pôr notificações no iPhone sozinha, por isso usa uma app gratuita, a <b>ntfy</b>, que só serve para as receber (não pede conta nem dados).</p>
+      <button id="ntfy-criar" class="btn primary full" type="button">Ligar avisos (cria o teu canal)</button>
+      <p id="ntfy-msg" class="nota" role="status">${esc(msg || "")}</p>` : `
+      <div class="ntfy-ok">✅ <div><b>Avisos ligados.</b> Chegam à app ntfy, no canal
+        <div class="canal"><code>${esc(t)}</code><button id="ntfy-copiar" class="btn mini" type="button">Copiar</button></div></div></div>
+      <details class="como" ${msg ? "open" : ""}><summary>Como pôr a app ntfy a receber</summary>${passosApp}</details>
+      <div class="linha2" style="margin-top:10px">
+        <button id="ntfy-teste" class="btn" type="button">Enviar teste</button>
+        <button id="ntfy-novo" class="btn" type="button">Mudar de canal</button></div>
+      <p id="ntfy-msg" class="nota" role="status">${esc(msg || "")}</p>`;
+  }
+  async function gravarCanal(t, msg) {
+    try {
+      await rpc("voltpt_ntfy", { p_topico: t });
+      if (dados.inicio) dados.inicio.ntfy = t;
+      desenharNtfy(msg); carregarInicio().catch(() => {});
+    } catch (e) { $("#ntfy-msg").textContent = e.message; }
+  }
+  async function testeNtfy() {
+    const t = dados.inicio?.ntfy; if (!t) return;
+    try {
+      const r = await fetch(`https://ntfy.sh/${encodeURIComponent(t)}?title=${encodeURIComponent("VoltPT")}`,
+        { method: "POST", body: "Teste: os avisos de posto livre vão chegar assim. ⚡" });
+      $("#ntfy-msg").textContent = r.ok ? "Enviado. Se não chegou, confirma o passo 2 (o canal na app ntfy) e as notificações da app." : "O ntfy não aceitou o envio. Tenta daqui a pouco.";
+    } catch { $("#ntfy-msg").textContent = "Sem ligação ao ntfy. Tenta outra vez."; }
   }
 
   function mensagemLogin(m) {
@@ -711,7 +896,12 @@
         $("#login-erro").textContent = mensagemLogin(e.message);
       } finally { btn.disabled = false; }
     });
-    $$(".tabbar button").forEach((b) => b.addEventListener("click", () => { fecharPosto(); mostrar(b.dataset.v); }));
+    $$(".tabbar button").forEach((b) => b.addEventListener("click", () => {
+      fecharPosto();
+      // entrar no Histórico (vindo de outro menu) começa sempre no mês atual
+      if (b.dataset.v === "hist" && vista !== "hist") filtroH = { per: "mes", de: "", ate: "" };
+      mostrar(b.dataset.v);
+    }));
     $("#frescura").addEventListener("click", () => atualizarTudo(true));
     $("#sheet-bg").addEventListener("click", fecharPosto);
     $("#sheet-fechar").addEventListener("click", fecharPosto);
@@ -720,22 +910,22 @@
     document.addEventListener("click", (e) => {
       const card = e.target.closest("[data-posto]"); if (card) return abrirPosto(card.dataset.posto);
       const bm = e.target.closest("[data-mes]");
-      if (bm) {                                  // barra do Início -> esse mês no Histórico
-        const [a, m] = bm.dataset.mes.split("-").map(Number);
-        const atual = diaLisboa(new Date().toISOString()).slice(0, 7) === bm.dataset.mes;
-        filtroH = atual ? { per: "mes", de: "", ate: "" }
-          : { per: "custom", de: isoDia(new Date(a, m - 1, 1)), ate: isoDia(new Date(a, m, 0)) };
-        mostrar("hist"); return;
-      }
+      if (bm) { mesInicio = bm.dataset.mes; desenharInicio(); return; }   // barra do Início: muda os números ali mesmo
       const ir = e.target.closest("[data-ir]");
       if (ir) {
         const d = ir.dataset.ir;
         if (d === "favs") { filtros.fav = true; store.set("filtros", filtros); $$(".map-chips .chip").forEach((x) => x.setAttribute("aria-pressed", filtros[x.dataset.f] ? "true" : "false")); }
+        if (d === "avisos") {
+          fecharPosto(); mostrar("mais");
+          setTimeout(() => $("#ntfy-box").scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+          return;
+        }
         if (d === "comb") {
           mostrar("hist");
           setTimeout(() => { const aj = $(".comb-aj"); aj.open = true; $(".comb").scrollIntoView({ behavior: "smooth", block: "start" }); }, 60);
           return;
         }
+        if (d === "hist") filtroH = { per: "mes", de: "", ate: "" };
         mostrar(d === "viagem" ? "mais" : d === "favs" ? "mapa" : d);
         if (d === "mapa") setTimeout(() => localizar(true, true), 120);
         return;
@@ -782,16 +972,15 @@
       par[k] = v; store.set("param", { tipo: par.tipo, consumo: par.consumo, preco: par.preco }); desenharHist(); if (dados.inicio) desenharInicio();
     });
     // viagem
-    ["#v-dist", "#v-soc", "#v-kw", "#v-preco"].forEach((s) => $(s).addEventListener("input", calcularViagem));
-    // ntfy
-    $("#ntfy-topico").addEventListener("input", () => { store.set("ntfy_rascunho", $("#ntfy-topico").value.trim()); atualizarLinkNtfy(); });
-    $("#ntfy-gerar").addEventListener("click", () => { $("#ntfy-topico").value = gerarTopico(); store.set("ntfy_rascunho", $("#ntfy-topico").value); atualizarLinkNtfy(); });
-    $("#ntfy-gravar").addEventListener("click", async () => {
-      try {
-        await rpc("voltpt_ntfy", { p_topico: $("#ntfy-topico").value.trim() });
-        $("#ntfy-msg").textContent = "Gravado. Na app ntfy, carrega em + e subscreve este mesmo tópico.";
-        carregarInicio().catch(() => {});
-      } catch (e) { $("#ntfy-msg").textContent = e.message; }
+    $("#v-calcular").addEventListener("click", calcularViagem);
+    $("#v-destino").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); calcularViagem(); } });
+    // avisos (ntfy)
+    $("#ntfy-box").addEventListener("click", (e) => {
+      const id = e.target.id;
+      if (id === "ntfy-criar") gravarCanal(gerarTopico(), "Canal criado. Agora faz os passos abaixo na app ntfy.");
+      if (id === "ntfy-novo") gravarCanal(gerarTopico(), "Canal novo criado: subscreve-o na app ntfy (e apaga o antigo).");
+      if (id === "ntfy-teste") testeNtfy();
+      if (id === "ntfy-copiar") { navigator.clipboard?.writeText(dados.inicio?.ntfy || "").then(() => toast("Copiado.")).catch(() => {}); }
     });
     $("#btn-sair").addEventListener("click", sair);
     // voltar à página: atualiza
