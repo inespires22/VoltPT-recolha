@@ -719,8 +719,8 @@
   function explicarModo() {
     const v = +$("#v-vel").value;
     $("#v-explica").innerHTML = modoViagem() === "vel"
-      ? (v >= 40 && v <= 140 ? `A ${num(v)} km/h o B10 gasta cerca de <b>${nf(1).format(consumoA(v))} kWh/100 km</b>: quanto mais depressa, mais gasta e com menos bateria chegas. O tempo de viagem também usa esta velocidade.` : "Escreve uma velocidade entre 40 e 140 km/h.")
-      : "A média vê-se no painel do carro (consumo). O tempo de viagem é o previsto para a estrada. A hora de saída conta para o preço (vazio / fora de vazio).";
+      ? (v >= 40 && v <= 140 ? `A ${num(v)} km/h o B10 gasta cerca de <b>${nf(1).format(consumoA(v))} kWh/100 km</b>: quanto mais depressa, mais tens de carregar pelo caminho (mais tempo e mais dinheiro). O tempo de condução também usa esta velocidade.` : "Escreve uma velocidade entre 40 e 140 km/h.")
+      : "A média vê-se no painel do carro (consumo). O tempo de condução é o previsto para a estrada.";
   }
   // instante (ms) do "AAAA-MM-DDTHH:MM" escrito, em hora de Lisboa
   function msDeLocal(v) {

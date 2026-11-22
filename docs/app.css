@@ -441,13 +441,10 @@ input[type="datetime-local"] { -webkit-appearance: none; appearance: none; displ
   body:not(.no-mapa) main { max-width: none; }
 
   /* duas colunas */
-  #v-inicio:not([hidden]), #v-hist:not([hidden]), #v-viagem:not([hidden]) {
-    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 28px; align-items: start; }
-  #v-viagem:not([hidden]) { grid-template-columns: minmax(340px, 420px) minmax(0, 1fr); }
+  #v-viagem:not([hidden]) { display: grid; grid-template-columns: minmax(340px, 420px) minmax(0, 1fr); gap: 0 28px; align-items: start; }
   .col-a { position: sticky; top: 76px; }
   #v-hist .col-a { position: static; }
   .col-b > :first-child { margin-top: 12px; }
-  #v-inicio .col-b > .sec-linha:first-child .sec, #v-inicio #alertas-box:empty + .sec-linha .sec { margin-top: 18px; }
   .col-a .kpis, .col-b .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #v-mais:not([hidden]) { max-width: 760px; }
 
@@ -479,10 +476,60 @@ input[type="datetime-local"] { -webkit-appearance: none; appearance: none; displ
   .sheet-bg { background: rgba(8,16,14,.12); }
   .toast { bottom: 28px; left: calc(50% + var(--lado) / 2); }
 }
-@media (min-width: 1440px) {
-  #v-inicio:not([hidden]) { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+
+/* Início e Histórico no computador: grelha com linhas alinhadas (os cartões lado a lado têm a mesma altura) */
+@media (min-width: 1024px) {
+  #v-inicio .col-a, #v-inicio .col-b, #v-hist .col-a, #v-hist .col-b { display: contents; }
+
+  /* Início:  [ mês (gráfico)      | atalhos   ]
+              [ favoritos          | último    ] */
+  #v-inicio:not([hidden]) { display: grid; gap: 0 24px; align-items: stretch;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    grid-template-areas: "hero atal" "alert alert" "favh ulth" "favs ult" "nota nota"; }
+  #v-inicio #hero { grid-area: hero; margin: 12px 0 0; }
+  #v-inicio .atalhos { grid-area: atal; margin: 12px 0 0; grid-template-columns: 1fr; grid-auto-rows: 1fr; gap: 14px; }
+  #v-inicio .atalho { display: flex; align-items: center; gap: 16px; padding: 18px 22px; font-size: 16px; text-align: left; }
+  #v-inicio .atalho .ic { font-size: 28px; width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; background: var(--surface-2); }
+  #v-inicio #alertas-box { grid-area: alert; margin-top: 8px; } #v-inicio #alertas-box:empty { display: none; }
+  #v-inicio .sec-linha { grid-area: favh; align-items: center; margin-top: 28px; min-height: 28px; }
+  #v-inicio .sec-linha .link { padding: 0 2px; }
+  #v-inicio #meus-postos { grid-area: favs; margin-top: 12px; align-content: start; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  #v-inicio #ultimo-box { grid-area: ulth / ulth / ult / ult; display: grid; grid-template-rows: subgrid; }
+  #v-inicio #ultimo-box .sec { margin: 28px 2px 0; min-height: 28px; display: flex; align-items: center; }
+  #v-inicio #ultimo-box .ultimo { align-self: start; margin-top: 12px; }
+  #v-inicio .sec { margin: 0 2px; }
+  #v-inicio #nota-estado { grid-area: nota; margin-top: 16px; } #v-inicio #nota-estado:empty { display: none; }
+
+  /* Histórico: [ período (uma linha)               ]
+                [ total do período   | 2 indicadores ]
+                [ vs gasolina        | por mês       ]
+                [ carregamentos (duas colunas)       ] */
+  #v-hist:not([hidden]) { display: grid; gap: 20px 24px; align-items: stretch;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "filtro filtro" "hero kpis" "comb mesh" "comb meses" "listah listah" "lista lista"; }
+  #v-hist .filtro-datas { grid-area: filtro; margin-top: 12px; display: flex; align-items: center; gap: 24px; padding: 14px 18px; }
+  #v-hist .filtro-datas .chips-wrap { flex: 1; margin: 0; }
+  #v-hist .filtro-datas .linha2 { width: 380px; flex: none; }
+  #v-hist .filtro-datas .campo { margin: 0; grid-template-columns: auto 1fr; align-items: center; gap: 8px; }
+  #v-hist #h-hero { grid-area: hero; margin: 0; }
+  #v-hist #h-kpis { grid-area: kpis; margin: 0; grid-template-columns: 1fr; grid-auto-rows: 1fr; gap: 20px; }
+  #v-hist #h-kpis .kpi { display: flex; flex-direction: column; justify-content: center; padding: 18px 22px; }
+  #v-hist #h-kpis .kpi .v { font-size: 30px; }
+  #v-hist .comb { grid-area: comb; margin: 0; align-self: start; }
+  #v-hist #h-meses-tit { grid-area: mesh; margin: 0 2px; align-self: end; }
+  #v-hist #h-meses { grid-area: meses; align-self: start; }
+  #v-hist #h-lista-tit { grid-area: listah; margin: 8px 2px 0; }
+  #v-hist #h-lista { grid-area: lista; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; align-content: start; }
+  #v-hist #h-lista .vazio-msg { grid-column: 1 / -1; }
+}
+@media (min-width: 1500px) {
+  #v-hist #h-lista { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--surface-2); padding: 4px; border-radius: 12px; }
 .seg button { border: 0; background: none; border-radius: 9px; padding: 9px 8px; font: inherit; font-size: 14px; font-weight: 650;
   color: var(--muted); cursor: pointer; }
 .seg button[aria-checked="true"] { background: var(--surface); color: var(--accent); box-shadow: var(--shadow); }
+/* campo da hora de saída: mesma altura que os outros (o iPhone desenha-o mais alto) */
+input[type="datetime-local"] { height: 46px; min-height: 0; padding-top: 0; padding-bottom: 0; display: flex; align-items: center; }
+input[type="datetime-local"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+.campo-saida { margin-bottom: 12px; }

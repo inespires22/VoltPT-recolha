@@ -13,7 +13,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="app.css?v=20">
+<link rel="stylesheet" href="app.css?v=24">
 </head>
 <body>
 
@@ -113,9 +113,9 @@
       </div>
       </div>
       <div class="col-b">
-      <h3 class="sec2">Por mês</h3>
+      <h3 class="sec2" id="h-meses-tit">Por mês</h3>
       <div id="h-meses" class="meses"></div>
-      <h3 class="sec2">Carregamentos</h3>
+      <h3 class="sec2" id="h-lista-tit">Carregamentos</h3>
       <div id="h-lista" class="lista"></div>
       </div>
     </section>
@@ -146,12 +146,10 @@
             <button type="button" role="radio" data-modo="media" aria-checked="true">A nossa média</button>
             <button type="button" role="radio" data-modo="vel" aria-checked="false">A velocidade</button>
           </div></div>
-        <div class="linha2">
-          <label class="campo" id="campo-cons">A nossa média (kWh/100 km)<input id="v-cons" type="number" min="10" max="35" step="0.1" inputmode="decimal"></label>
-          <label class="campo" id="campo-vel" hidden>Velocidade média (km/h)<input id="v-vel" type="number" min="40" max="140" step="1" inputmode="numeric" value="110"></label>
-          <label class="campo">Saída<input id="v-hora" type="datetime-local" step="60"></label>
-        </div>
-        <p class="nota" id="v-explica" style="margin:0 0 12px"></p>
+        <label class="campo" id="campo-cons">A nossa média (kWh/100 km)<input id="v-cons" type="number" min="10" max="35" step="0.1" inputmode="decimal"></label>
+        <label class="campo" id="campo-vel" hidden>Velocidade média (km/h)<input id="v-vel" type="number" min="40" max="140" step="1" inputmode="numeric" value="110"></label>
+        <p class="nota" id="v-explica" style="margin:-4px 2px 12px"></p>
+        <label class="campo campo-saida">Saída (dia e hora)<input id="v-hora" type="datetime-local" step="60"></label>
         <button id="v-calcular" class="btn primary full" type="button">Calcular paragens</button>
         <p id="v-erro" class="calc-erro" role="alert"></p>
       </div>
@@ -206,9 +204,9 @@
   <div id="toast" class="toast" role="status" hidden></div>
 </div>
 
-<script src="config.js?v=20"></script>
+<script src="config.js?v=24"></script>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="calc.js?v=20"></script>
-<script src="app.js?v=20"></script>
+<script src="calc.js?v=24"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>
