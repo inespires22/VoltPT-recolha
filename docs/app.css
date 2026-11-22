@@ -672,3 +672,10 @@ input[type="datetime-local"]::-webkit-date-and-time-value { text-align: left; ma
 /* fundo do mapa enquanto o mapa novo carrega (cor de terra do estilo, sem "piscar") */
 .map.leaflet-container, .mapa-viagem.leaflet-container { background: #f4f1ea; }
 @media (prefers-color-scheme: dark) { .map.leaflet-container, .mapa-viagem.leaflet-container { background: #1c2422; } }
+/* Histórico no computador: as duas colunas acabam à mesma altura
+   ("Para onde foi o dinheiro" e "Onde carregaste" esticam até ao fundo da coluna mais alta) */
+@media (min-width: 1024px) {
+  #v-hist .h-esq, #v-hist .h-dir { align-self: stretch; }
+  #v-hist .h-esq > #h-din, #v-hist .h-dir > #h-postos { flex: 1 1 auto; }
+  #v-hist .h-dir > #h-postos[hidden] + *, #v-hist .h-dir > .comb:last-child { flex: 1 1 auto; }
+}
