@@ -236,6 +236,12 @@ main { padding: 0 16px calc(var(--tab-h) + var(--safe-b) + 18px); max-width: 640
 .filtro-datas { margin-top: 12px; background: var(--surface); border-radius: var(--radius); padding: 12px 14px 2px; box-shadow: var(--shadow); }
 .filtro-datas .chips-wrap { margin-bottom: 10px; }
 .filtro-datas .chip { box-shadow: none; }
+/* iOS: os campos de data têm largura mínima própria e saem da grelha; forçar a caber */
+.linha2 > * { min-width: 0; }
+input[type="date"] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%;
+  box-sizing: border-box; text-align: left; line-height: 24px; }
+input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+input[type="date"]::-webkit-calendar-picker-indicator { margin-left: 0; }
 
 /* a minha localização no mapa */
 .eu-pulso { animation: pulso 2s ease-out infinite; }

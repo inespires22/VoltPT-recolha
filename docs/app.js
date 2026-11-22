@@ -469,7 +469,7 @@
   // ------------------------------------------------------------------ histórico
   const PAR_DEF = { consumo: 6.5, preco: 1.70, co2: 2.31, rede: 0 };
   let par = Object.assign({}, PAR_DEF, store.get("param", {}));
-  let filtroH = Object.assign({ per: "tudo", de: "", ate: "" }, store.get("hfiltro", {}));
+  let filtroH = { per: "mes", de: "", ate: "" };   // abre sempre no mês atual
   const diaLisboa = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/Lisbon" });   // AAAA-MM-DD
   const isoDia = (d) => d.toLocaleDateString("en-CA");
   function intervalo(per) {
@@ -487,7 +487,7 @@
   function escolherPeriodo(per) {
     filtroH.per = per;
     if (per !== "custom") [filtroH.de, filtroH.ate] = intervalo(per);
-    store.set("hfiltro", filtroH); desenharHist();
+    desenharHist();
   }
   function desenharHist() {
     const h = dados.hist; if (!h) return;
@@ -624,7 +624,7 @@
     $$(".filtro-datas [data-per]").forEach((b) => b.addEventListener("click", () => escolherPeriodo(b.dataset.per)));
     ["#h-de", "#h-ate"].forEach((sel) => $(sel).addEventListener("change", () => {
       filtroH.per = "custom"; filtroH.de = $("#h-de").value; filtroH.ate = $("#h-ate").value;
-      store.set("hfiltro", filtroH); desenharHist();
+      desenharHist();
     }));
     // histórico
     for (const k of Object.keys(PAR_DEF)) $("#p-" + k).addEventListener("input", (e) => {
