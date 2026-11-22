@@ -155,6 +155,21 @@
   }
   const nomeMes = (k, ano) => { const [a, m] = k.split("-"); return new Date(+a, +m - 1, 1).toLocaleDateString("pt-PT", ano ? { month: "long", year: "numeric" } : { month: "long" }); };
 
+  // linha extra do cartão do mês (só no computador): mês anterior e previsão / média
+  function htmlExtraMes(todos, mesVer, mesAtual, t) {
+    const [y, m] = mesVer.split("-").map(Number);
+    const ant = isoDia(new Date(y, m - 2, 1)).slice(0, 7);
+    const custoAnt = todos.filter((c) => diaLisboa(c.inicio).startsWith(ant)).reduce((a, c) => a + (+c.custo || 0), 0);
+    const nomeAnt = nomeMes(ant);
+    const caixas = [[nomeAnt[0].toUpperCase() + nomeAnt.slice(1), custoAnt ? eur(custoAnt) : "—",
+      // num mês a meio, comparar com um mês inteiro enganava: só mostra a diferença em meses fechados
+      mesVer !== mesAtual && custoAnt && t.custo ? `${t.custo >= custoAnt ? "▲" : "▼"} ${num(Math.abs(t.custo / custoAnt - 1) * 100)} % este mês` : "mês anterior"]];
+    const hoje = +diaLisboa(new Date().toISOString()).slice(8, 10), dias = new Date(y, m, 0).getDate();
+    if (mesVer === mesAtual && hoje >= 3 && t.custo)
+      caixas.push(["Previsão do mês", `≈ ${eur(t.custo / hoje * dias)}`, "ao ritmo atual"]);
+    else if (t.n) caixas.push(["Por carregamento", eur(t.custo / t.n), "em média"]);
+    return `<div class="h-extra">${caixas.map(([l, v, x]) => `<div><span>${esc(l)}</span><b>${v}</b><small>${esc(x)}</small></div>`).join("")}</div>`;
+  }
   let mesInicio = null;
   function desenharInicio() {
     const i = dados.inicio, h = dados.hist; if (!i) return;
@@ -185,6 +200,7 @@
         <span class="h-comb-v">⛽ ${cmp.poupado >= 0 ? `Poupaste <b>${eur(cmp.poupado)}</b>` : `Gastaste mais <b>${eur(-cmp.poupado)}</b>`} vs um carro a ${cmp.nome}</span>
         <span class="h-comb-c">Carro que gasta ${nf(1).format(par.consumo)} L/100 km, ${cmp.nome} a ${nf(2).format(par.preco)} €/L · ${num(cmp.litros)} L para os mesmos ${num(t.km)} km · mudar ›</span>
       </button>` : ""}
+      ${h ? htmlExtraMes(todos, mesVer, mesAtual, t) : ""}
       ${h ? `<div class="h-barras" style="grid-template-columns:repeat(${Math.max(meses.length, 3)},1fr)" aria-label="Gasto nos últimos 6 meses">${meses.map((m, k) => `
         <button class="h-b${m === mesVer ? " atual" : ""}" data-mes="${m}" aria-pressed="${m === mesVer}" aria-label="${esc(nomeMes(m, true))}: ${eur(porMes[k])}">
           <span class="h-bv">${porMes[k] ? Math.round(porMes[k]) + "€" : ""}</span>
@@ -258,7 +274,7 @@
       const c = map.getCenter();
       let gl, pronto = false;
       try {
-        gl = new ml.Map({ container: caixa, style: `https://tiles.openfreemap.org/styles/${escuro ? "dark" : "positron"}`,
+        gl = new ml.Map({ container: caixa, style: `https://tiles.openfreemap.org/styles/${escuro ? "dark" : "liberty"}`,
                           center: [c.lng, c.lat], zoom: map.getZoom() - 1, interactive: false, attributionControl: false, fadeDuration: 0 });
       } catch { caixa.remove(); return; }                       // sem WebGL: fica o OpenStreetMap
       const desistir = () => { if (pronto) return; try { gl.remove(); } catch { /* */ } caixa.remove(); };
@@ -738,6 +754,22 @@
       <p class="comb-txt">Para fazer os mesmos ≈ ${num(t.km)} km, um carro a ${esc(cmp.nome)} gastava ≈ ${num(cmp.litros)} L.</p>
       <p class="comb-txt">🌱 Esse carro teria deitado <b>≈ ${num(cmp.co2)} kg de CO₂</b> para o ar; o teu não deitou nenhum pelo escape.</p>
       <p class="nota" style="margin:8px 0 0">Conta feita com ${nf(1).format(par.consumo)} L/100 km e ${esc(cmp.nome)} a ${nf(2).format(par.preco)} €/L.</p>`;
+    // onde carregaste (no período)
+    const porPosto = new Map();
+    for (const c of lista) {
+      const k = c.posto || "Posto por identificar", x = porPosto.get(k) || { n: 0, custo: 0, kwh: 0, dc: false };
+      x.n++; x.custo += +c.custo || 0; x.kwh += +c.kwh || 0; x.dc = x.dc || ehDC(c); porPosto.set(k, x);
+    }
+    const tops = [...porPosto].sort((a, b) => b[1].custo - a[1].custo), maxP = tops.length ? tops[0][1].custo : 1;
+    $("#h-postos").innerHTML = !t.n ? "" : `<h2 class="cartao-tit">Onde carregaste</h2>
+      <div class="postos-top">${tops.slice(0, 5).map(([nome, x]) => `<div class="pt">
+        <span class="pt-ic${x.dc ? " dc" : ""}" aria-hidden="true">${x.dc ? "⚡" : "🔌"}</span>
+        <div class="pt-corpo"><div class="pt-nome">${esc(nome)}</div>
+          <div class="pt-barra"><i style="width:${(100 * x.custo / maxP).toFixed(1)}%"></i></div>
+          <div class="muted">${num(x.n)}× · ${num(x.kwh, 1)} kWh · ${x.kwh ? nf(3).format(x.custo / x.kwh) + " €/kWh" : ""}</div></div>
+        <b class="pt-v">${eur(x.custo)}</b></div>`).join("")}</div>
+      ${tops.length > 5 ? `<p class="nota" style="margin:8px 0 0">+ ${num(tops.length - 5)} outro${tops.length - 5 === 1 ? "" : "s"} posto${tops.length - 5 === 1 ? "" : "s"}</p>` : ""}`;
+    $("#h-postos").hidden = !t.n;
     const cab = `<div class="sessao cab"><span></span><span>Posto</span><span>Início</span><span>Energia</span><span>Duração</span><span>Autonomia</span><span class="s-val">Custo</span></div>`;
     $("#h-lista").innerHTML = lista.length ? cab + lista.map((c) => `<div class="sessao">
         <span class="s-ic${ehDC(c) ? " dc" : ""}" aria-hidden="true">${ehDC(c) ? "⚡" : "🔌"}</span>
