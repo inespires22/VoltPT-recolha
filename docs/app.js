@@ -104,8 +104,10 @@
 
   // ------------------------------------------------------------------ início
   async function carregarInicio() {
-    dados.inicio = await rpc("voltpt_inicio");
+    const [ini, hist] = await Promise.all([rpc("voltpt_inicio"), rpc("voltpt_historico").catch(() => null)]);
+    dados.inicio = ini; if (hist) dados.hist = hist;
     desenharFrescura(); desenharInicio();
+    if (vista === "hist") desenharHist();
   }
   function desenharFrescura() {
     const i = dados.inicio; if (!i) return;
@@ -116,24 +118,74 @@
   }
   function cartaoPosto(p) {
     const cls = estadoClasse(p.estado);
-    const livres = p.tomadas ? `${p.livres ?? 0}/${p.tomadas} livres` : "";
-    return `<button class="posto-card" data-posto="${esc(p.id)}">
-      <span class="nome">${esc(p.posto)}</span>
-      <span class="pill ${cls}">${esc(estadoTexto(p.estado))}</span>
-      <span class="sub">${esc(livres)}${p.kw ? ` · ${num(p.kw)} kW ${esc(p.tipo || "")}` : ""}${p.desde ? ` · mudou ${haQuanto(p.desde)}` : ""}</span>
+    const livres = p.tomadas ? `${p.livres ?? 0} de ${p.tomadas} livre${(p.livres ?? 0) === 1 ? "" : "s"}` : "";
+    return `<button class="posto-card pc-${cls}" data-posto="${esc(p.id)}">
+      <span class="ic-posto" aria-hidden="true">⚡</span>
+      <span class="corpo"><span class="nome">${esc(p.posto)}</span>
+      <span class="sub">${p.kw ? `${num(p.kw)} kW ${esc(p.tipo || "")}` : ""}${p.desde ? ` · mudou ${haQuanto(p.desde)}` : ""}</span></span>
+      <span class="lado"><span class="pill ${cls}">${esc(estadoTexto(p.estado))}</span>
+      <span class="livres">${esc(livres)}</span></span>
     </button>`;
   }
+  // totais de um conjunto de carregamentos (o Início e o Histórico contam da mesma forma)
+  function somar(lista) {
+    const t = { n: lista.length, custo: 0, kwh: 0, km: 0, tempo: 0, tar_fv: 0 };
+    for (const c of lista) for (const k of ["custo", "kwh", "km", "tempo", "tar_fv"]) t[k] += +c[k] || 0;
+    return t;
+  }
+  // o mesmo percurso num carro a combustão
+  function vsCombustao(t) {
+    const litros = t.km / 100 * par.consumo;
+    const custo = litros * par.preco;
+    return { litros, custo, poupado: custo - t.custo, co2: litros * (par.tipo === "gasoleo" ? 2.68 : 2.31),
+             nome: par.tipo === "gasoleo" ? "gasóleo" : "gasolina" };
+  }
+  const nomeMes = (k, ano) => { const [a, m] = k.split("-"); return new Date(+a, +m - 1, 1).toLocaleDateString("pt-PT", ano ? { month: "long", year: "numeric" } : { month: "long" }); };
+
   function desenharInicio() {
-    const i = dados.inicio;
+    const i = dados.inicio, h = dados.hist;
+    const todos = h?.carregamentos || [];
+    const mesAtual = diaLisboa(new Date().toISOString()).slice(0, 7);
+    const doMes = todos.filter((c) => diaLisboa(c.inicio).startsWith(mesAtual));
+    const t = h ? somar(doMes) : { n: i.mes?.carregamentos || 0, custo: +i.mes?.custo || 0, kwh: +i.mes?.kwh || 0, km: 0 };
+    const meses = [];
+    const primeiro = todos.length ? diaLisboa(todos[todos.length - 1].inicio).slice(0, 7) : mesAtual;
+    for (let k = 5; k >= 0; k--) {   // últimos 6 meses, a começar no 1.º carregamento
+      const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - k);
+      const m = isoDia(d).slice(0, 7); if (m >= primeiro || k === 0) meses.push(m);
+    }
+    const porMes = meses.map((m) => todos.filter((c) => diaLisboa(c.inicio).startsWith(m)).reduce((a, c) => a + (+c.custo || 0), 0));
+    const max = Math.max(...porMes, 1);
+    const cmp = vsCombustao(t);
+    const titulo = nomeMes(mesAtual);
+    $("#hero").innerHTML = `
+      <div class="h-top"><span>${esc(titulo[0].toUpperCase() + titulo.slice(1))}</span>${i.carro ? `<span class="h-carro">🚗 ${esc(i.carro.nome)}</span>` : ""}</div>
+      <div class="h-val">${eur(t.custo)}</div>
+      <div class="h-sub">${t.n ? `${num(t.n)} carregamento${t.n === 1 ? "" : "s"} · ${num(t.kwh, 1)} kWh${t.km ? ` · ≈ ${num(t.km)} km` : ""}` : "Ainda não carregaste este mês"}</div>
+      ${t.n ? `<div class="h-chips">
+        ${t.kwh ? `<span class="h-chip">${nf(3).format(t.custo / t.kwh)} €/kWh</span>` : ""}
+        ${t.km && cmp.poupado > 0 ? `<span class="h-chip">⛽ poupaste ${eur(cmp.poupado)} vs ${cmp.nome}</span>` : ""}
+      </div>` : ""}
+      ${h ? `<div class="h-barras" style="grid-template-columns:repeat(${Math.max(meses.length, 3)},1fr)" aria-label="Gasto nos últimos 6 meses">${meses.map((m, k) => `
+        <div class="h-b${k === meses.length - 1 ? " atual" : ""}" title="${esc(nomeMes(m, true))}: ${eur(porMes[k])}">
+          <span class="h-bv">${porMes[k] ? Math.round(porMes[k]) + "€" : ""}</span>
+          <i style="height:${Math.max(4, 100 * porMes[k] / max).toFixed(0)}%"></i>
+          <span class="h-bl">${esc(nomeMes(m).slice(0, 3))}</span></div>`).join("")}</div>` : ""}`;
+
     const mp = i.meus_postos || [];
     $("#meus-postos").innerHTML = mp.length ? mp.map(cartaoPosto).join("")
       : `<div class="vazio-msg">Ainda não tens favoritos. No Mapa, abre um posto e toca na ☆ ao lado do ✕.</div>`;
     const alertas = (i.alertas || []).filter((a) => !a.disparado && new Date(a.expira) > new Date());
     $("#alertas-box").innerHTML = alertas.map((a) => `<div class="alerta"><span>🔔 À espera de <b>${esc(a.posto)}</b> até ${horaCurta(a.expira)}</span>
       <button class="btn" data-cancelar="${esc(a.id)}">Cancelar</button></div>`).join("");
-    const m = i.mes || {};
-    $("#mes").innerHTML = kpi(eur(m.custo), "gasto") + kpi(num(m.kwh, 1) + " kWh", "carregados") +
-      kpi(num(m.carregamentos), "carregamentos") + kpi(m.kwh ? nf(3).format(m.custo / m.kwh) + " €" : "—", "por kWh");
+    const u = todos[0];
+    $("#ultimo-box").innerHTML = u ? `<h2 class="sec">Último carregamento</h2>
+      <div class="ultimo">
+        <div class="u-ic" aria-hidden="true">${u.tipo === "DC" ? "⚡" : "🔌"}</div>
+        <div class="u-corpo"><div class="u-nome">${esc(u.posto)}</div>
+          <div class="u-sub">${haQuanto(u.inicio)} · ${num(u.kwh, 1)} kWh · ${duracao(u.min)}${u.so_vazio ? " · em vazio" : ""}</div></div>
+        <div class="u-val">${eur(u.custo)}<small>${u.kwh ? nf(3).format(u.custo / u.kwh) + " €/kWh" : ""}</small></div>
+      </div>` : "";
     const semEstado = mp.length && mp.every((p) => p.estado === "Sem dados");
     $("#nota-estado").textContent = semEstado ? "Sem estado em tempo real: confirma que o workflow 'estado' está a correr." : "";
   }
@@ -467,7 +519,7 @@
   }
 
   // ------------------------------------------------------------------ histórico
-  const PAR_DEF = { consumo: 6.5, preco: 1.70, co2: 2.31, rede: 0 };
+  const PAR_DEF = { tipo: "gasolina", consumo: 6.5, preco: 1.70 };
   let par = Object.assign({}, PAR_DEF, store.get("param", {}));
   let filtroH = { per: "mes", de: "", ate: "" };   // abre sempre no mês atual
   const diaLisboa = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/Lisbon" });   // AAAA-MM-DD
@@ -496,19 +548,27 @@
     $("#h-de").value = filtroH.de; $("#h-ate").value = filtroH.ate;
     const todos = h.carregamentos || [];
     const lista = todos.filter((c) => { const d = diaLisboa(c.inicio); return (!filtroH.de || d >= filtroH.de) && (!filtroH.ate || d <= filtroH.ate); });
-    const soma = (k) => lista.reduce((a, c) => a + (+c[k] || 0), 0);
-    const t = { n: lista.length, custo: soma("custo"), kwh: soma("kwh"), km: soma("km"), tempo: soma("tempo"), tar_fv: soma("tar_fv") };
+    const t = somar(lista);
     const fmtD = (s) => new Date(s + "T12:00:00").toLocaleDateString("pt-PT", { day: "numeric", month: "short", year: "numeric" });
     $("#h-titulo").textContent = !filtroH.de && !filtroH.ate ? "Desde que tenho o carro"
       : `${filtroH.de ? fmtD(filtroH.de) : "início"} → ${filtroH.ate ? fmtD(filtroH.ate) : "hoje"}`;
-    const combustao = t.km / 100 * par.consumo * par.preco;
-    const co2 = t.km / 100 * par.consumo * par.co2 - t.kwh * par.rede;
+    const cmp = vsCombustao(t);
     $("#h-kpis").innerHTML = !t.n ? `<div class="vazio-msg" style="grid-column:1/-1">Sem carregamentos neste período.</div>` :
       kpi(eur(t.custo), `${num(t.n)} carregamento${t.n === 1 ? "" : "s"}`) + kpi(num(t.kwh, 1) + " kWh", `≈ ${num(t.km)} km`) +
       kpi(t.kwh ? nf(3).format(t.custo / t.kwh) + " €" : "—", "por kWh") + kpi(t.km ? eur(t.custo / t.km * 100) : "—", "por 100 km") +
-      kpi(eur(combustao - t.custo), "poupado vs combustão", "destaque") + kpi(num(co2) + " kg", "CO2 evitado", "destaque") +
-      kpi(t.custo ? num(100 * t.tempo / t.custo) + " %" : "—", "pago ao minuto") +
-      kpi(eur(t.tar_fv * 0.78), "poupavas só em vazio");
+      kpi(t.custo ? num(100 * t.tempo / t.custo) + " %" : "—", "do custo foi tempo (ao minuto)") +
+      kpi(eur(t.tar_fv * 0.78), "a menos se carregasses só em vazio");
+    const maior = Math.max(cmp.custo, t.custo, 0.01);
+    $("#h-comb").innerHTML = !t.n || !t.km ? `<p class="nota" style="margin:0">Sem quilómetros neste período para comparar.</p>` : `
+      <div class="comb-tit">E se fosse um carro a ${esc(cmp.nome)}?</div>
+      <div class="comb-big ${cmp.poupado >= 0 ? "bom" : "mau"}">${cmp.poupado >= 0 ? "Poupaste" : "Gastaste mais"} ${eur(Math.abs(cmp.poupado))}</div>
+      <div class="comb-barras">
+        <div class="cb"><span>⛽ A ${esc(cmp.nome)}</span><i style="width:${(100 * cmp.custo / maior).toFixed(1)}%" class="cb-comb"></i><b>${eur(cmp.custo)}</b></div>
+        <div class="cb"><span>⚡ Elétrico</span><i style="width:${(100 * t.custo / maior).toFixed(1)}%" class="cb-ev"></i><b>${eur(t.custo)}</b></div>
+      </div>
+      <p class="comb-txt">Para fazer os mesmos ≈ ${num(t.km)} km, um carro a ${esc(cmp.nome)} gastava ≈ ${num(cmp.litros)} L.</p>
+      <p class="comb-txt">🌱 Esse carro teria deitado <b>≈ ${num(cmp.co2)} kg de CO₂</b> para o ar; o teu não deitou nenhum pelo escape.</p>
+      <p class="nota" style="margin:8px 0 0">Conta feita com ${nf(1).format(par.consumo)} L/100 km e ${esc(cmp.nome)} a ${nf(2).format(par.preco)} €/L.</p>`;
     // por mês (dentro do período)
     const meses = new Map();
     for (const c of lista) {
@@ -594,6 +654,14 @@
     window.addEventListener("popstate", () => { if (!$("#sheet").hidden) fecharPosto(); });
     document.addEventListener("click", (e) => {
       const card = e.target.closest("[data-posto]"); if (card) return abrirPosto(card.dataset.posto);
+      const ir = e.target.closest("[data-ir]");
+      if (ir) {
+        const d = ir.dataset.ir;
+        if (d === "favs") { filtros.fav = true; store.set("filtros", filtros); $$(".map-chips .chip").forEach((x) => x.setAttribute("aria-pressed", filtros[x.dataset.f] ? "true" : "false")); }
+        mostrar(d === "viagem" ? "mais" : d === "favs" ? "mapa" : d);
+        if (d === "mapa") setTimeout(() => localizar(true, true), 120);
+        return;
+      }
       const canc = e.target.closest("[data-cancelar]"); if (canc) return cancelarAviso(canc.dataset.cancelar);
       const ac = e.target.closest("[data-acao]"); if (!ac) return;
       if (ac.dataset.acao === "avisar") {
@@ -627,9 +695,9 @@
       desenharHist();
     }));
     // histórico
-    for (const k of Object.keys(PAR_DEF)) $("#p-" + k).addEventListener("input", (e) => {
-      const v = parseFloat(String(e.target.value).replace(",", ".")); if (isNaN(v)) return;
-      par[k] = v; store.set("param", par); desenharHist();
+    for (const k of Object.keys(PAR_DEF)) $("#p-" + k).addEventListener(k === "tipo" ? "change" : "input", (e) => {
+      const v = k === "tipo" ? e.target.value : parseFloat(String(e.target.value).replace(",", ".")); if (v === "" || Number.isNaN(v)) return;
+      par[k] = v; store.set("param", { tipo: par.tipo, consumo: par.consumo, preco: par.preco }); desenharHist(); if (dados.inicio) desenharInicio();
     });
     // viagem
     ["#v-dist", "#v-soc", "#v-kw", "#v-preco"].forEach((s) => $(s).addEventListener("input", calcularViagem));

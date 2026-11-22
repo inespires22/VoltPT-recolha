@@ -13,7 +13,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="app.css?v=8">
+<link rel="stylesheet" href="app.css?v=9">
 </head>
 <body>
 
@@ -43,11 +43,16 @@
   <main>
     <!-- Início -->
     <section id="v-inicio" class="view">
-      <h2 class="sec">★ Favoritos</h2>
-      <div id="meus-postos" class="cards"></div>
+      <div id="hero" class="hero"></div>
+      <div class="atalhos">
+        <button class="atalho" data-ir="mapa"><span class="ic">📍</span>Perto de mim</button>
+        <button class="atalho" data-ir="viagem"><span class="ic">🧭</span>Planear viagem</button>
+        <button class="atalho" data-ir="hist"><span class="ic">📊</span>Histórico</button>
+      </div>
       <div id="alertas-box"></div>
-      <h2 class="sec">Este mês</h2>
-      <div id="mes" class="kpis"></div>
+      <div class="sec-linha"><h2 class="sec">★ Favoritos</h2><button class="link" data-ir="favs">Ver no mapa ›</button></div>
+      <div id="meus-postos" class="cards"></div>
+      <div id="ultimo-box"></div>
       <p class="nota" id="nota-estado"></p>
     </section>
 
@@ -88,17 +93,17 @@
       </div>
       <h2 class="sec" id="h-titulo">Desde que tenho o carro</h2>
       <div id="h-kpis" class="kpis"></div>
-      <details class="params">
-        <summary>Comparar com um carro a combustão</summary>
-        <div class="linha2">
-          <label class="campo">Consumo (L/100 km)<input id="p-consumo" type="number" step="0.1" min="2" max="15" inputmode="decimal"></label>
-          <label class="campo">Preço (€/L)<input id="p-preco" type="number" step="0.01" min="0.5" max="3" inputmode="decimal"></label>
-        </div>
-        <div class="linha2">
-          <label class="campo">CO2 combustível (kg/L)<input id="p-co2" type="number" step="0.01" min="1.5" max="3.5" inputmode="decimal"></label>
-          <label class="campo">CO2 eletricidade (kg/kWh)<input id="p-rede" type="number" step="0.01" min="0" max="0.6" inputmode="decimal"></label>
-        </div>
-      </details>
+      <div class="comb">
+        <div id="h-comb"></div>
+        <details class="comb-aj">
+          <summary>Mudar o carro de comparação</summary>
+          <div class="linha2">
+            <label class="campo">Combustível<select id="p-tipo"><option value="gasolina">Gasolina</option><option value="gasoleo">Gasóleo</option></select></label>
+            <label class="campo">Gasta (L/100 km)<input id="p-consumo" type="number" step="0.1" min="2" max="15" inputmode="decimal"></label>
+          </div>
+          <label class="campo">Preço por litro (€)<input id="p-preco" type="number" step="0.01" min="0.5" max="3" inputmode="decimal"></label>
+        </details>
+      </div>
       <h3 class="sec2">Por mês</h3>
       <div id="h-meses" class="meses"></div>
       <h3 class="sec2">Carregamentos</h3>
@@ -158,9 +163,9 @@
   <div id="toast" class="toast" role="status" hidden></div>
 </div>
 
-<script src="config.js?v=8"></script>
+<script src="config.js?v=9"></script>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="calc.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="calc.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
