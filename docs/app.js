@@ -263,7 +263,8 @@
       } catch { caixa.remove(); return; }                       // sem WebGL: fica o OpenStreetMap
       const desistir = () => { if (pronto) return; try { gl.remove(); } catch { /* */ } caixa.remove(); };
       gl.on("load", () => {
-        pronto = true; el.classList.add("com-vetorial"); map.removeLayer(osm);
+        if (!caixa.clientHeight) { desistir(); return; }       // sem tamanho: não se vê, fica o OpenStreetMap
+        pronto = true; el.classList.add("com-vetorial"); map.removeLayer(osm); gl.resize();
         map.attributionControl.addAttribution('<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> · © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>');
         acompanhar();
       });

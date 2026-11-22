@@ -557,7 +557,9 @@ input[type="datetime-local"]::-webkit-date-and-time-value { text-align: left; ma
 @media (min-width: 1024px) { #v-hist .sessao.cab { display: grid; } }
 
 /* ---------- mapa: fundo vetorial e pinos ---------- */
-.fundo-vetorial { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+/* o CSS do MapLibre põe "position: relative" no contentor: aqui tem de ganhar o absoluto, senão fica com altura 0 */
+.leaflet-container > .fundo-vetorial, .leaflet-container > .fundo-vetorial.maplibregl-map {
+  position: absolute !important; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; overflow: hidden; }
 .fundo-vetorial canvas { outline: none; }
 .leaflet-container.com-vetorial { background: transparent; }
 .map.escuro.com-vetorial .leaflet-tile-pane { filter: none; }
