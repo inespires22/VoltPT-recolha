@@ -13,7 +13,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="app.css?v=14">
+<link rel="stylesheet" href="app.css?v=15">
 </head>
 <body>
 
@@ -113,24 +113,31 @@
     </section>
 
     <!-- Mais -->
-    <section id="v-mais" class="view" hidden>
+    <section id="v-viagem" class="view" hidden>
       <!-- Planear viagem -->
       <div class="hero hero-mini">
         <div class="h-top"><span>🧭 Planear viagem</span></div>
         <p class="h-sub" style="margin:6px 0 12px">Diz de onde sais e para onde vais: eu digo onde parar a carregar e quanto custa.</p>
         <div class="rota-campos">
-          <label class="rota-campo"><span>De</span>
-            <input id="v-origem" type="text" placeholder="📍 A minha localização" autocomplete="off" enterkeyhint="next"></label>
-          <label class="rota-campo"><span>Para</span>
-            <input id="v-destino" type="text" placeholder="Ex.: Porto, Coimbra, Rua …" autocomplete="off" enterkeyhint="go"></label>
+          <div class="rota-campo"><label for="v-origem">De</label>
+            <input id="v-origem" type="text" placeholder="📍 A minha localização" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="next" role="combobox" aria-expanded="false" aria-controls="sug-origem">
+            <ul id="sug-origem" class="sugestoes" role="listbox" hidden></ul></div>
+          <div class="rota-campo"><label for="v-destino">Para</label>
+            <input id="v-destino" type="text" placeholder="Rua, localidade, sítio…" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" role="combobox" aria-expanded="false" aria-controls="sug-destino">
+            <ul id="sug-destino" class="sugestoes" role="listbox" hidden></ul></div>
         </div>
       </div>
       <div class="cartao">
         <div class="linha2">
           <label class="campo">Bateria à saída (%)<input id="v-soc" type="number" min="10" max="100" step="1" value="90" inputmode="numeric"></label>
-          <label class="campo">A nossa média (kWh/100 km)<input id="v-cons" type="number" min="10" max="35" step="0.1" inputmode="decimal"></label>
+          <label class="campo">Chegar ao destino com (%)<input id="v-fim" type="number" min="5" max="80" step="1" value="20" inputmode="numeric"></label>
         </div>
-        <p class="nota" style="margin:0 0 12px">A média vê-se no painel do carro (consumo). Em autoestrada costuma ser mais alta.</p>
+        <div class="linha2">
+          <label class="campo">A nossa média (kWh/100 km)<input id="v-cons" type="number" min="10" max="35" step="0.1" inputmode="decimal"></label>
+          <label class="campo">Velocidade média (km/h)<input id="v-vel" type="number" min="40" max="140" step="1" inputmode="numeric" placeholder="automática"></label>
+        </div>
+        <label class="campo">Saída<input id="v-hora" type="datetime-local" step="60"></label>
+        <p class="nota" style="margin:0 0 12px">A média de consumo vê-se no painel do carro. Sem velocidade, uso o tempo previsto para a estrada. A hora de saída conta para o preço (vazio / fora de vazio).</p>
         <button id="v-calcular" class="btn primary full" type="button">Calcular paragens</button>
         <p id="v-erro" class="calc-erro" role="alert"></p>
       </div>
@@ -141,7 +148,9 @@
         <a id="v-gmaps" class="btn full" target="_blank" rel="noopener">🧭 Abrir a rota no Google Maps</a>
         <p class="nota" id="v-nota"></p>
       </div>
+    </section>
 
+    <section id="v-mais" class="view" hidden>
       <!-- Avisos -->
       <div class="cartao">
         <h2 class="cartao-tit">🔔 Avisos de posto livre</h2>
@@ -161,6 +170,7 @@
   <nav class="tabbar" aria-label="Secções">
     <button data-v="inicio" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z"/></svg>Início</button>
     <button data-v="mapa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>Mapa</button>
+    <button data-v="viagem"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="5" r="2.2"/><path d="M8.2 19H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.8"/></svg>Viagem</button>
     <button data-v="hist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M7 16v-5M12 16V7M17 16v-8"/></svg>Histórico</button>
     <button data-v="mais"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>Mais</button>
   </nav>
@@ -178,9 +188,9 @@
   <div id="toast" class="toast" role="status" hidden></div>
 </div>
 
-<script src="config.js?v=14"></script>
+<script src="config.js?v=15"></script>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="calc.js?v=14"></script>
-<script src="app.js?v=14"></script>
+<script src="calc.js?v=15"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

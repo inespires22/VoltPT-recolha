@@ -89,7 +89,7 @@
   // ------------------------------------------------------------------ estado da página
   let dados = {};            // inicio, historico
   let vista = store.get("vista", "inicio");
-  if (!["inicio", "mapa", "hist", "mais"].includes(vista)) vista = "inicio";
+  if (!["inicio", "mapa", "viagem", "hist", "mais"].includes(vista)) vista = "inicio";
 
   function mostrar(v) {
     vista = v; store.set("vista", v);
@@ -98,6 +98,7 @@
     document.body.classList.toggle("no-mapa", v !== "mapa");
     if (v === "mapa") abrirMapa();
     if (v === "hist") abrirHist();
+    if (v === "viagem") abrirViagem();
     if (v === "mais") abrirMais();
     window.scrollTo(0, 0);
   }
@@ -187,7 +188,7 @@
           <span class="h-bv">${porMes[k] ? Math.round(porMes[k]) + "€" : ""}</span>
           <i style="height:${Math.max(4, 100 * porMes[k] / max).toFixed(0)}%"></i>
           <span class="h-bl">${esc(nomeMes(m).slice(0, 3))}</span></button>`).join("")}</div>
-      <div class="h-dica">${mesVer === mesAtual ? "Toca num mês para ver os números desse mês" : `<button class="h-voltar" data-mes="${mesAtual}">‹ Voltar a ${esc(nomeMes(mesAtual))}</button>`}</div>` : ""}`;
+` : ""}`;
 
     const mp = i.meus_postos || [];
     $("#meus-postos").innerHTML = mp.length ? mp.map(cartaoPosto).join("")
@@ -248,11 +249,12 @@
     }
     setTimeout(() => { mapa.invalidateSize(); carregarMapa(); }, 50);
   }
-  let eu = null;
+  let eu = null, ultimaPos = null;
   function localizar(centrar, avisar) {
     if (!navigator.geolocation) { if (avisar) toast("O browser não dá a localização."); return; }
     navigator.geolocation.getCurrentPosition((p) => {
       const ll = [p.coords.latitude, p.coords.longitude];
+      ultimaPos = ll;
       if (!eu) {
         eu = L.layerGroup([
           L.circle(ll, { radius: Math.min(p.coords.accuracy || 50, 300), color: "#2563eb", weight: 0, fillOpacity: 0.12, interactive: false }),
@@ -679,28 +681,104 @@
   // ------------------------------------------------------------------ mais: viagem, avisos, conta
   let viag = store.get("viagem", {}), mapaV = null, camadaV = null, pedidoViagem = 0;
   function abrirMais() {
+    desenharNtfy();
+    $("#conta-info").textContent = sessao?.email ? `Entraste como ${sessao.email}.` : "";
+  }
+  // "AAAA-MM-DDTHH:MM" na hora de Lisboa, para o campo da hora de saída
+  const localInput = (ms) => {
+    const d = new Date(ms), f = (o) => d.toLocaleString("en-CA", Object.assign({ timeZone: "Europe/Lisbon", hourCycle: "h23" }, o));
+    return `${f({ year: "numeric", month: "2-digit", day: "2-digit" })}T${f({ hour: "2-digit", minute: "2-digit" })}`;
+  };
+  function abrirViagem() {
     const c = dados.inicio?.carro;
     if (!$("#v-cons").value) $("#v-cons").value = viag.cons || (c ? nf(1).format(+c.consumo).replace(",", ".") : "19");
     if (viag.soc && $("#v-soc").value === "90") $("#v-soc").value = viag.soc;
-    if (viag.destino && !$("#v-destino").value) $("#v-destino").value = viag.destino;
-    if (viag.origem && !$("#v-origem").value) $("#v-origem").value = viag.origem;
-    desenharNtfy();
-    $("#conta-info").textContent = sessao?.email ? `Entraste como ${sessao.email}.` : "";
+    if (viag.fim && $("#v-fim").value === "20") $("#v-fim").value = viag.fim;
+    if (viag.vel && !$("#v-vel").value) $("#v-vel").value = viag.vel;
+    // hora de saída: agora (arredondada aos 5 min), se ainda não foi escolhida ou já passou
+    const h = $("#v-hora"), agora = Math.ceil(Date.now() / 300000) * 300000;
+    if (!h.value || h.value < localInput(Date.now() - 60000)) h.value = localInput(agora);
+    for (const [id, k] of [["#v-origem", "origem"], ["#v-destino", "destino"]]) {
+      const el = $(id), v = viag[k];
+      if (v && !el.value) { el.value = v.nome || v; if (v.lat) { el.dataset.lat = v.lat; el.dataset.lon = v.lon; } }
+    }
     if (mapaV) setTimeout(() => mapaV.invalidateSize(), 50);
+  }
+  // instante (ms) do "AAAA-MM-DDTHH:MM" escrito, em hora de Lisboa
+  function msDeLocal(v) {
+    const [d, t] = v.split("T"), [Y, M, D] = d.split("-").map(Number), [h, m] = t.split(":").map(Number);
+    let ms = Date.UTC(Y, M - 1, D, h, m);
+    for (let i = 0; i < 2; i++) { const l = localInput(ms).split("T")[1].split(":").map(Number); ms -= ((l[0] - h) * 60 + (l[1] - m)) * 60000; }
+    return ms;
   }
   const distKm = (a, b) => {   // [lat, lon]
     const r = Math.PI / 180, dLa = (b[0] - a[0]) * r, dLo = (b[1] - a[1]) * r;
     const h = Math.sin(dLa / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLo / 2) ** 2;
     return 12742 * Math.asin(Math.sqrt(h));
   };
-  async function geocodificar(q) {
-    const u = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=pt,es&accept-language=pt&q=" + encodeURIComponent(q);
-    let r;
-    try { r = await fetch(u, { headers: { Accept: "application/json" } }); } catch { throw new Error("Sem ligação ao serviço de moradas. Tenta outra vez."); }
+  // moradas: Photon (OpenStreetMap), feito para sugerir enquanto se escreve
+  const FOTON = "https://photon.komoot.io/api/";
+  function textoSugestao(f) {
+    const p = f.properties || {};
+    const rua = p.street ? `${p.street}${p.housenumber ? " " + p.housenumber : ""}` : "";
+    const l1 = p.name || rua || p.city || "";
+    const l2 = [p.name && rua ? rua : "", p.city && p.city !== l1 ? p.city : "", !p.city ? p.county || p.state : "", p.country !== "Portugal" ? p.country : ""]
+      .filter((x, k, arr) => x && x !== l1 && arr.indexOf(x) === k).join(", ");
+    return { l1, l2, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+  }
+  async function procurarMoradas(q, sinal) {
+    const perto = ultimaPos ? `&lat=${ultimaPos[0].toFixed(3)}&lon=${ultimaPos[1].toFixed(3)}` : "&lat=38.72&lon=-9.14";
+    const r = await fetch(`${FOTON}?q=${encodeURIComponent(q)}&limit=6&lang=default&bbox=-10,35.9,3.4,43.9${perto}`, { signal: sinal });
     if (!r.ok) throw new Error("O serviço de moradas não respondeu. Tenta daqui a pouco.");
-    const j = await r.json();
-    if (!j.length) throw new Error(`Não encontrei "${q}". Experimenta escrever a localidade (ex.: "Coimbra").`);
-    return { lat: +j[0].lat, lon: +j[0].lon, nome: j[0].display_name.split(",").slice(0, 2).join(",").trim() };
+    const j = await r.json(), vistos = new Set();
+    return (j.features || []).map(textoSugestao).filter((x) => x.l1 && !vistos.has(x.l1 + x.l2) && vistos.add(x.l1 + x.l2));
+  }
+  async function geocodificar(q) {
+    let lista;
+    try { lista = await procurarMoradas(q); } catch (e) { throw new Error(e.message.startsWith("O serviço") ? e.message : "Sem ligação ao serviço de moradas. Tenta outra vez."); }
+    if (!lista.length) throw new Error(`Não encontrei "${q}". Escreve a rua e a localidade, ou escolhe uma das sugestões.`);
+    const x = lista[0];
+    return { lat: x.lat, lon: x.lon, nome: x.l2 ? `${x.l1}, ${x.l2.split(",")[0]}` : x.l1 };
+  }
+  // lista de sugestões por baixo dos campos De / Para
+  function ligarSugestoes(input, lista, comLocalizacao) {
+    let t = null, ctl = null, itens = [], ativo = -1;
+    const fechar = () => { lista.hidden = true; input.setAttribute("aria-expanded", "false"); ativo = -1; };
+    const mostrarLista = (xs) => {
+      itens = xs;
+      lista.innerHTML = xs.map((x, k) => `<li role="option" data-k="${k}" class="${x.eu ? "eu" : ""}"><b>${esc(x.l1)}</b>${x.l2 ? `<span>${esc(x.l2)}</span>` : ""}</li>`).join("");
+      lista.hidden = !xs.length; input.setAttribute("aria-expanded", xs.length ? "true" : "false");
+    };
+    const escolher = (k) => {
+      const x = itens[k]; if (!x) return;
+      if (x.eu) { input.value = ""; delete input.dataset.lat; delete input.dataset.lon; }
+      else { input.value = x.l2 ? `${x.l1}, ${x.l2.split(",")[0]}` : x.l1; input.dataset.lat = x.lat; input.dataset.lon = x.lon; }
+      fechar();
+      if (input.id === "v-origem") $("#v-destino").focus(); else input.blur();
+    };
+    const euItem = { eu: true, l1: "📍 A minha localização", l2: "" };
+    input.addEventListener("input", () => {
+      delete input.dataset.lat; delete input.dataset.lon;
+      clearTimeout(t); if (ctl) ctl.abort();
+      const q = input.value.trim();
+      if (q.length < 3) { mostrarLista(comLocalizacao ? [euItem] : []); return; }
+      t = setTimeout(async () => {
+        ctl = new AbortController();
+        try { const xs = await procurarMoradas(q, ctl.signal); if (input.value.trim() === q) mostrarLista(xs); }
+        catch (e) { if (e.name !== "AbortError") fechar(); }
+      }, 250);
+    });
+    input.addEventListener("focus", () => { if (comLocalizacao && !input.value.trim()) mostrarLista([euItem]); });
+    input.addEventListener("blur", () => setTimeout(fechar, 150));
+    input.addEventListener("keydown", (e) => {
+      if (lista.hidden) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault(); ativo = (ativo + (e.key === "ArrowDown" ? 1 : itens.length - 1)) % itens.length;
+        [...lista.children].forEach((li, k) => li.classList.toggle("ativo", k === ativo));
+      } else if (e.key === "Enter" && ativo >= 0) { e.preventDefault(); escolher(ativo); }
+      else if (e.key === "Escape") fechar();
+    });
+    lista.addEventListener("pointerdown", (e) => { const li = e.target.closest("li"); if (li) { e.preventDefault(); escolher(+li.dataset.k); } });
   }
   function minhaPosicao() {
     return new Promise((ok, ko) => {
@@ -729,12 +807,12 @@
   }
   // Paragens: o posto rápido mais longe que ainda alcanças (chegando com >= 12 %), carregando
   // só o preciso para o resto da viagem (no máximo 80 %, onde a carga rápida abranda).
-  function planearParagens(postos, total, soc0, cap, cons) {
+  function planearParagens(postos, total, soc0, cap, cons, fim = 12) {
     const RES = 12, ALVO = 80, kmPorPct = cap / cons;          // km por 1 % de bateria
     let pos = 0, soc = soc0, desvioAnt = 0;
     const paragens = [];
     for (let g = 0; g < 12; g++) {
-      if (soc - (total - pos) / kmPorPct >= RES) break;          // chega ao destino
+      if (soc - (total - pos + desvioAnt) / kmPorPct >= fim) break;   // chega ao destino com a % pedida
       const alcance = pos + (soc - RES) / 1 * kmPorPct;
       const cand = postos.filter((p) => p.km > pos + 10 && p.km + p.desvio <= alcance);
       if (!cand.length) return { paragens, falha: true, pos, soc };
@@ -742,8 +820,11 @@
       const nota = (p) => Math.min(p.kw, 150) / 150 * 30 + (p.livres > 0 ? 12 : 0) + (p.tem_preco ? 8 : 0) + (p.km - longe + 40) / 40 * 25;
       const p = cand.filter((x) => x.km >= longe - 40).sort((a, b) => nota(b) - nota(a))[0];
       const chegada = soc - (p.km - pos + p.desvio + desvioAnt) / kmPorPct;
-      const precisa = RES + (total - p.km + p.desvio) / kmPorPct + 4;
-      const sai = Math.min(ALVO, Math.max(Math.ceil(precisa), Math.ceil(chegada) + 5));
+      const precisa = fim + (total - p.km + p.desvio) / kmPorPct + 3;
+      // até 80 % (a carga rápida abranda depois); só passa disso se for a última paragem
+      const ultima = total - p.km + p.desvio <= (ALVO - RES) * kmPorPct;
+      const teto = precisa > ALVO && ultima && (total - p.km + p.desvio) / kmPorPct + fim <= 100 ? 100 : ALVO;
+      const sai = Math.min(teto, Math.max(Math.ceil(precisa), Math.ceil(chegada) + 5));
       paragens.push(Object.assign({}, p, { chegada: Math.max(0, Math.round(chegada)), sai }));
       pos = p.km; soc = sai; desvioAnt = p.desvio;
     }
@@ -767,27 +848,40 @@
   async function calcularViagem() {
     const meu = ++pedidoViagem, erro = $("#v-erro");
     erro.textContent = "";
-    const destinoTxt = $("#v-destino").value.trim(), origemTxt = $("#v-origem").value.trim();
-    const soc = Math.round(+$("#v-soc").value), cons = parseFloat(String($("#v-cons").value).replace(",", "."));
+    const oEl = $("#v-origem"), dEl = $("#v-destino");
+    const destinoTxt = dEl.value.trim(), origemTxt = oEl.value.trim();
+    const soc = Math.round(+$("#v-soc").value), fim = Math.round(+$("#v-fim").value);
+    const cons = parseFloat(String($("#v-cons").value).replace(",", "."));
+    const velTxt = $("#v-vel").value.trim(), vel = velTxt ? +velTxt : null, horaTxt = $("#v-hora").value;
     if (!destinoTxt) { erro.textContent = "Escreve para onde vais."; return; }
     if (!(soc >= 10 && soc <= 100)) { erro.textContent = "A bateria à saída tem de estar entre 10 e 100 %."; return; }
+    if (!(fim >= 5 && fim <= 80)) { erro.textContent = "A bateria à chegada tem de estar entre 5 e 80 %."; return; }
     if (!(cons >= 10 && cons <= 35)) { erro.textContent = "A média tem de estar entre 10 e 35 kWh/100 km."; return; }
-    viag = { origem: origemTxt, destino: destinoTxt, soc, cons }; store.set("viagem", viag);
+    if (vel != null && !(vel >= 40 && vel <= 140)) { erro.textContent = "A velocidade média tem de estar entre 40 e 140 km/h (ou deixa vazio)."; return; }
+    const saida = horaTxt ? msDeLocal(horaTxt) : Date.now();
+    const ponto = (el, txt) => el.dataset.lat ? { lat: +el.dataset.lat, lon: +el.dataset.lon, nome: txt } : null;
+    viag = { origem: origemTxt ? (ponto(oEl, origemTxt) || origemTxt) : "", destino: ponto(dEl, destinoTxt) || destinoTxt, soc, fim, cons, vel };
+    store.set("viagem", viag);
     const btn = $("#v-calcular"); btn.disabled = true; btn.textContent = "A calcular…";
     try {
-      const [a, b] = await Promise.all([origemTxt ? geocodificar(origemTxt) : minhaPosicao(), geocodificar(destinoTxt)]);
+      const [a, b] = await Promise.all([!origemTxt ? minhaPosicao() : ponto(oEl, origemTxt) || geocodificar(origemTxt),
+                                        ponto(dEl, destinoTxt) || geocodificar(destinoTxt)]);
       const rota = await rotaCarro(a, b);
+      if (vel) rota.min = rota.km / vel * 60;                  // a tua velocidade em vez da prevista
+      rota.vel = vel || rota.km / rota.min * 60;
       if (meu !== pedidoViagem) return;
       const postos = await rpc("voltpt_postos_rota", { p_pontos: amostrarRota(rota.coords, rota.km) });
       const cap = +(dados.inicio?.carro?.bateria_kwh || 65);
-      const plano = planearParagens(postos || [], rota.km, soc, cap, cons);
+      const plano = planearParagens(postos || [], rota.km, soc, cap, cons, fim);
       // tempo e custo de cada paragem (à hora a que lá chegas)
-      let relogio = Date.now(), kmAnt = 0;
+      let relogio = saida, kmAnt = 0;
       for (const p of plano.paragens) {
         relogio += (p.km - kmAnt) / rota.km * rota.min * 60000; kmAnt = p.km;
         Object.assign(p, await custoParagem(p, relogio));
         relogio += (p.min || 0) * 60000;
       }
+      plano.chegaAs = relogio + (rota.km - kmAnt) / rota.km * rota.min * 60000;
+      plano.saida = saida;
       if (meu !== pedidoViagem) return;
       desenharViagem(a, b, rota, plano);
     } catch (e) { erro.textContent = e.message; }
@@ -798,12 +892,13 @@
     const ps = plano.paragens, minCarga = ps.reduce((s, p) => s + (p.min || 0), 0);
     const custos = ps.map((p) => p.custo), semPreco = custos.some((c) => c == null);
     const total = custos.reduce((s, c) => s + (c || 0), 0);
-    $("#v-res").innerHTML = kpi(`${num(rota.km)} km`, `${duracao(rota.min)} a conduzir`) +
+    $("#v-res").innerHTML = kpi(`${num(rota.km)} km`, `${duracao(rota.min)} a conduzir (${num(rota.vel)} km/h)`) +
       kpi(plano.falha ? "—" : num(ps.length), plano.falha ? "não dá para planear" : ps.length === 1 ? "paragem" : ps.length ? "paragens" : "paragens: não precisas") +
       kpi(ps.length ? duracao(minCarga) : "0h00", "a carregar") +
       kpi(ps.length ? (semPreco ? "≈ " : "") + eur(total) : "0,00 €", semPreco ? "a carregar (há postos sem preço)" : "a carregar, com IVA");
     // lista
-    const linhas = [`<div class="pg pg-ponta"><span class="pg-ic">🏠</span><div><b>${esc(a.nome)}</b><div class="muted">Saída com ${viag.soc} %</div></div></div>`];
+    const quando = (ms) => new Date(ms).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", weekday: "short", hour: "2-digit", minute: "2-digit" });
+    const linhas = [`<div class="pg pg-ponta"><span class="pg-ic">🏠</span><div><b>${esc(a.nome)}</b><div class="muted">Saída ${quando(plano.saida)} com ${viag.soc} %</div></div></div>`];
     ps.forEach((p, k) => {
       const est = !p.com_estado ? `<span class="pill Sem">Sem dados</span>` : p.livres > 0 ? `<span class="pill Livre">${p.livres} livre${p.livres > 1 ? "s" : ""}</span>` : `<span class="pill Ocupado">Ocupado</span>`;
       linhas.push(`<button class="pg pg-posto" data-posto="${esc(p.id)}"><span class="pg-ic n">${k + 1}</span>
@@ -813,7 +908,7 @@
         ${est}</button>`);
     });
     if (plano.falha) linhas.push(`<div class="pg aviso">⚠️ Não encontrei posto rápido (≥ 50 kW) ao alcance depois do km ${num(plano.pos)}. Sai com mais bateria ou escolhe outro caminho.</div>`);
-    linhas.push(`<div class="pg pg-ponta"><span class="pg-ic">🏁</span><div><b>${esc(b.nome)}</b><div class="muted">${plano.falha ? "" : `Chegas com ≈ ${plano.chegadaFinal} %`}</div></div></div>`);
+    linhas.push(`<div class="pg pg-ponta"><span class="pg-ic">🏁</span><div><b>${esc(b.nome)}</b><div class="muted">${plano.falha ? "" : `Chegas ${quando(plano.chegaAs)} com ≈ ${plano.chegadaFinal} %`}</div></div></div>`);
     $("#v-paragens").innerHTML = linhas.join("");
     $("#v-nota").textContent = "Paragens em postos rápidos (≥ 50 kW) a menos de 3 km da rota, chegando a cada um com pelo menos 12 % e carregando no máximo até 80 %. Custo com o preço do operador + o teu contrato + taxas, à hora a que lá chegas. Toca num posto para ver o estado e a calculadora.";
     const ll = (p) => `${(+p.lat).toFixed(5)},${(+p.lon).toFixed(5)}`;
@@ -926,7 +1021,7 @@
           return;
         }
         if (d === "hist") filtroH = { per: "mes", de: "", ate: "" };
-        mostrar(d === "viagem" ? "mais" : d === "favs" ? "mapa" : d);
+        mostrar(d === "favs" ? "mapa" : d);
         if (d === "mapa") setTimeout(() => localizar(true, true), 120);
         return;
       }
@@ -973,7 +1068,9 @@
     });
     // viagem
     $("#v-calcular").addEventListener("click", calcularViagem);
-    $("#v-destino").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); calcularViagem(); } });
+    ligarSugestoes($("#v-origem"), $("#sug-origem"), true);
+    ligarSugestoes($("#v-destino"), $("#sug-destino"), false);
+    $("#v-destino").addEventListener("keydown", (e) => { if (e.key === "Enter" && $("#sug-destino").hidden) { e.preventDefault(); e.target.blur(); calcularViagem(); } });
     // avisos (ntfy)
     $("#ntfy-box").addEventListener("click", (e) => {
       const id = e.target.id;
