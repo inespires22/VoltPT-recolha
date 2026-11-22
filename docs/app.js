@@ -29,8 +29,47 @@
     const d = Math.floor(h / 24);
     return d === 1 ? "há 1 dia" : `há ${d} dias`;
   }
-  const dataCurta = (iso) => new Date(iso).toLocaleDateString("pt-PT", { day: "2-digit", month: "short" });
-  const horaCurta = (iso) => new Date(iso).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+  // Datas sempre em português e na hora de Lisboa, escritas à mão: alguns telemóveis/browsers em
+  // inglês ignoravam o "pt-PT" e mostravam "Oct", "at", "PM"…
+  const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  const MESES_C = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+  const DIAS_C = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
+  function lx(t) {        // partes da data/hora em Lisboa: {Y, M, D, h, m, dow (0 = segunda)}
+    const ms = typeof t === "number" ? t : new Date(t).getTime();
+    const p = {}; for (const x of new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Lisbon", year: "numeric", month: "2-digit",
+      day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", numberingSystem: "latn" }).formatToParts(new Date(ms))) p[x.type] = x.value;
+    const Y = +p.year, M = +p.month, D = +p.day;
+    return { Y, M, D, h: +p.hour % 24, m: +p.minute, dow: (new Date(Date.UTC(Y, M - 1, D)).getUTCDay() + 6) % 7 };
+  }
+  const d2 = (n) => String(n).padStart(2, "0");
+  const dataCurta = (iso) => { const x = lx(iso); return `${d2(x.D)}/${d2(x.M)}`; };
+  const horaCurta = (iso) => { const x = lx(iso); return `${d2(x.h)}:${d2(x.m)}`; };
+  // Campos de data/hora nativos: o browser desenha-os na língua dele (mm/dd/yyyy, PM…).
+  // Mostra-se por cima o valor em português; o campo verdadeiro fica por baixo, transparente,
+  // e continua a abrir o calendário/relógio do telemóvel ou do computador.
+  function textoNativo(el) {
+    const v = el.value;
+    if (el.type === "date") { if (!v) return "dd/mm/aaaa"; const [a, m, d] = v.split("-"); return `${d}/${m}/${a}`; }
+    if (el.type === "time") return v ? v.slice(0, 5) : "--:--";
+    if (!v) return "dd/mm/aaaa --:--";
+    const [dt, hr] = v.split("T"), [a, m, d] = dt.split("-").map(Number);
+    return `${DIAS_C[(new Date(Date.UTC(a, m - 1, d)).getUTCDay() + 6) % 7]}, ${d2(d)}/${d2(m)} às ${hr.slice(0, 5)}`;
+  }
+  function prepararNativos(raiz = document) {
+    for (const el of raiz.querySelectorAll('input[type="date"], input[type="time"], input[type="datetime-local"]')) {
+      if (el.dataset.nativo) continue;
+      el.dataset.nativo = "1";
+      const ver = document.createElement("span");
+      ver.className = "nativo-ver"; ver.setAttribute("aria-hidden", "true");
+      el.after(ver); el.parentElement.classList.add("campo-nativo");
+      const pintar = () => { ver.textContent = textoNativo(el); ver.classList.toggle("vazio", !el.value); };
+      el.addEventListener("input", pintar); el.addEventListener("change", pintar);
+      el.addEventListener("click", () => { try { el.showPicker?.(); } catch { /* alguns browsers não deixam */ } });
+      el._pintar = pintar; pintar();
+    }
+  }
+  const pintarNativos = () => document.querySelectorAll("input[data-nativo]").forEach((el) => el._pintar && el._pintar());
+  const diaHora = (ms) => { const x = lx(ms); return `${DIAS_C[x.dow]}, ${d2(x.D)}/${d2(x.M)} às ${d2(x.h)}:${d2(x.m)}`; };
   const duracao = (min) => min == null ? "—" : `${Math.floor(min / 60)}h${String(Math.round(min % 60)).padStart(2, "0")}`;
   const estadoClasse = (e) => ["Livre", "Ocupado", "Avariado", "Reservado", "Bloqueado"].includes(e) ? e : "Sem";
   const estadoTexto = (e) => e === "Sem dados" || !e ? "Sem dados" : e;
@@ -153,7 +192,7 @@
     return { litros, custo, poupado: custo - t.custo, co2: litros * (par.tipo === "gasoleo" ? 2.68 : 2.31),
              nome: par.tipo === "gasoleo" ? "gasóleo" : "gasolina" };
   }
-  const nomeMes = (k, ano) => { const [a, m] = k.split("-"); return new Date(+a, +m - 1, 1).toLocaleDateString("pt-PT", ano ? { month: "long", year: "numeric" } : { month: "long" }); };
+  const nomeMes = (k, ano) => { const [a, m] = k.split("-"); return ano ? `${MESES[+m - 1]} de ${a}` : MESES[+m - 1]; };
 
   // linha extra do cartão do mês (só no computador): mês anterior e previsão / média
   function htmlExtraMes(todos, mesVer, mesAtual, t) {
@@ -205,7 +244,7 @@
         <button class="h-b${m === mesVer ? " atual" : ""}" data-mes="${m}" aria-pressed="${m === mesVer}" aria-label="${esc(nomeMes(m, true))}: ${eur(porMes[k])}">
           <span class="h-bv">${porMes[k] ? Math.round(porMes[k]) + "€" : ""}</span>
           <i style="height:${Math.max(4, 100 * porMes[k] / max).toFixed(0)}%"></i>
-          <span class="h-bl">${esc(nomeMes(m).slice(0, 3))}</span></button>`).join("")}</div>
+          <span class="h-bl">${esc(MESES_C[+m.slice(5, 7) - 1])}</span></button>`).join("")}</div>
 ` : ""}`;
 
     // indicadores do mês escolhido (no computador, ao lado do cartão)
@@ -268,7 +307,8 @@
   function fundoMapa(map, escuro) {
     const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
-    carregarMapLibre().then((ml) => {
+    // o mapa da viagem é criado antes de ter centro (o fitBounds vem logo a seguir): espera por ele
+    carregarMapLibre().then((ml) => new Promise((ok) => map.whenReady(() => ok(ml)))).then((ml) => {
       const el = map.getContainer(), caixa = document.createElement("div");
       caixa.className = "fundo-vetorial"; el.insertBefore(caixa, el.firstChild);
       const c = map.getCenter();
@@ -557,6 +597,7 @@
     const a = horaAgora();
     selCalc = { dia: a.dia, min: a.min, agora: true, tomada: 0 };   // "agora" até mudares o dia ou a hora
     $("#k-dia").value = selCalc.dia; $("#k-hora").value = hhmm(selCalc.min);
+    prepararNativos($("#sheet-body")); pintarNativos();
     try {
       const t = await rpc("voltpt_tarifa", { p_posto: id });
       if (postoAberto !== id) return;
@@ -683,8 +724,8 @@
   const PAR_DEF = { tipo: "gasolina", consumo: 6.5, preco: 1.70 };
   let par = Object.assign({}, PAR_DEF, store.get("param", {}));
   let filtroH = { per: "mes", de: "", ate: "" };   // abre sempre no mês atual
-  const diaLisboa = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/Lisbon" });   // AAAA-MM-DD
-  const isoDia = (d) => d.toLocaleDateString("en-CA");
+  const diaLisboa = (iso) => { const x = lx(iso); return `${x.Y}-${d2(x.M)}-${d2(x.D)}`; };   // AAAA-MM-DD
+  const isoDia = (d) => `${d.getFullYear()}-${d2(d.getMonth() + 1)}-${d2(d.getDate())}`;
   function intervalo(per) {
     const h = new Date(), y = h.getFullYear(), m = h.getMonth();
     if (per === "mes") return [isoDia(new Date(y, m, 1)), isoDia(h)];
@@ -711,11 +752,11 @@
     $("#h-hero").classList.remove("esqueleto");
     if (filtroH.per !== "custom") [filtroH.de, filtroH.ate] = intervalo(filtroH.per);
     $$(".filtro-datas [data-per]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.per === filtroH.per ? "true" : "false"));
-    $("#h-de").value = filtroH.de; $("#h-ate").value = filtroH.ate;
+    $("#h-de").value = filtroH.de; $("#h-ate").value = filtroH.ate; pintarNativos();
     const todos = h.carregamentos || [];
     const lista = todos.filter((c) => { const d = diaLisboa(c.inicio); return (!filtroH.de || d >= filtroH.de) && (!filtroH.ate || d <= filtroH.ate); });
     const t = somar(lista);
-    const fmtD = (s) => new Date(s + "T12:00:00").toLocaleDateString("pt-PT", { day: "numeric", month: "short", year: "numeric" });
+    const fmtD = (s) => { const [a, m, d] = s.split("-"); return `${+d} ${MESES_C[+m - 1]} ${a}`; };
     $("#h-titulo").textContent = !filtroH.de && !filtroH.ate ? "Desde que tenho o carro"
       : `${filtroH.de ? fmtD(filtroH.de) : "início"} → ${filtroH.ate ? fmtD(filtroH.ate) : "hoje"}`;
     const cmp = vsCombustao(t);
@@ -789,10 +830,7 @@
     $("#conta-info").textContent = sessao?.email ? `Entraste como ${sessao.email}.` : "";
   }
   // "AAAA-MM-DDTHH:MM" na hora de Lisboa, para o campo da hora de saída
-  const localInput = (ms) => {
-    const d = new Date(ms), f = (o) => d.toLocaleString("en-CA", Object.assign({ timeZone: "Europe/Lisbon", hourCycle: "h23" }, o));
-    return `${f({ year: "numeric", month: "2-digit", day: "2-digit" })}T${f({ hour: "2-digit", minute: "2-digit" })}`;
-  };
+  const localInput = (ms) => { const x = lx(ms); return `${x.Y}-${d2(x.M)}-${d2(x.D)}T${d2(x.h)}:${d2(x.m)}`; };
   function abrirViagem() {
     const c = dados.inicio?.carro;
     if (!$("#v-cons").value) $("#v-cons").value = viag.cons || (c ? nf(1).format(+c.consumo).replace(",", ".") : "19");
@@ -803,6 +841,7 @@
     // hora de saída: agora (arredondada aos 5 min), se ainda não foi escolhida ou já passou
     const h = $("#v-hora"), agora = Math.ceil(Date.now() / 300000) * 300000;
     if (!h.value || h.value < localInput(Date.now() - 60000)) h.value = localInput(agora);
+    pintarNativos();
     // cada vez que entras: "De" volta à tua localização (campo vazio) e "Para" fica em branco
     for (const id of ["#v-origem", "#v-destino"]) { const el = $(id); el.value = ""; delete el.dataset.lat; delete el.dataset.lon; }
     $("#sug-origem").hidden = true; $("#sug-destino").hidden = true;
@@ -1020,7 +1059,7 @@
       kpi(ps.length ? duracao(minCarga) : "0h00", "a carregar") +
       kpi(ps.length ? (semPreco ? "≈ " : "") + eur(total) : "0,00 €", semPreco ? "a carregar (há postos sem preço)" : "a carregar, com IVA");
     // lista
-    const quando = (ms) => new Date(ms).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", weekday: "short", hour: "2-digit", minute: "2-digit" });
+    const quando = diaHora;
     const linhas = [`<div class="pg pg-ponta"><span class="pg-ic">🏠</span><div><b>${esc(a.nome)}</b><div class="muted">Saída ${quando(plano.saida)} com ${viag.soc} %</div></div></div>`];
     ps.forEach((p, k) => {
       const est = !p.com_estado ? `<span class="pill Sem">Sem dados</span>` : p.livres > 0 ? `<span class="pill Livre">${p.livres} livre${p.livres > 1 ? "s" : ""}</span>` : `<span class="pill Ocupado">Ocupado</span>`;
@@ -1176,7 +1215,7 @@
       const c = e.target.closest("[data-dh]"); if (!c) return;
       const [d, h] = c.dataset.dh.split("-").map(Number);
       Object.assign(selCalc, { dia: d, min: h * 60, agora: false });
-      $("#k-dia").value = selCalc.dia; $("#k-hora").value = hhmm(selCalc.min); desenharCalc();
+      $("#k-dia").value = selCalc.dia; $("#k-hora").value = hhmm(selCalc.min); pintarNativos(); desenharCalc();
     });
     // histórico: período
     $$(".filtro-datas [data-per]").forEach((b) => b.addEventListener("click", () => escolherPeriodo(b.dataset.per)));
@@ -1233,6 +1272,7 @@
   }
 
   ligarEventos();
+  prepararNativos();
   if (!CFG.supabaseKey || CFG.supabaseKey.startsWith("COLA_")) {
     $("#login").hidden = false;
     $("#login-erro").textContent = "Falta a chave pública do Supabase no config.js.";

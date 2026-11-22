@@ -642,3 +642,27 @@ input[type="datetime-local"]::-webkit-date-and-time-value { text-align: left; ma
   #v-hist .comb { grid-area: auto; display: block; }
   #v-hist #h-postos { margin: 0; }
 }
+
+/* campos de data/hora: valor em português por cima do campo nativo (transparente) */
+.campo-nativo { position: relative; }
+.campo-nativo > input[data-nativo] { position: absolute; left: 0; right: 0; bottom: 0; height: 44px; min-height: 0; width: 100%; opacity: 0;
+  z-index: 2; cursor: pointer; margin: 0; }
+.nativo-ver { display: flex; align-items: center; height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); color: var(--text); font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nativo-ver::after { content: ""; margin-left: auto; width: 18px; height: 18px; flex: none; opacity: .55;
+  background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E") center / contain no-repeat; }
+.nativo-ver.vazio { color: var(--muted); }
+.campo-nativo > input[data-nativo]:focus-visible + .nativo-ver { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* "Onde carregaste": coluna do valor com largura fixa, para as barras ficarem todas alinhadas */
+.pt { grid-template-columns: 34px minmax(0, 1fr) 84px; }
+.pt-v { text-align: right; }
+/* Viagem no computador: as duas colunas começam à mesma altura */
+@media (min-width: 1024px) {
+  #v-viagem .col-a > .hero-mini, #v-viagem .col-b > #v-vazio, #v-viagem .col-b > #v-out { margin-top: 12px; }
+  #v-viagem .col-b > :first-child { margin-top: 12px; }
+  #v-viagem .col-a { position: static; }   /* sem "colar" ao descer: as duas colunas andam juntas */
+  #v-out > .kpis { margin-top: 0; }
+}
