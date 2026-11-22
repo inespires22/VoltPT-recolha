@@ -13,7 +13,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="app.css?v=6">
+<link rel="stylesheet" href="app.css?v=7">
 </head>
 <body>
 
@@ -148,17 +148,19 @@
   <!-- Folha de detalhe do posto -->
   <div id="sheet-bg" class="sheet-bg" hidden></div>
   <aside id="sheet" class="sheet" hidden aria-modal="true" role="dialog" aria-labelledby="s-nome">
-    <div class="grip" aria-hidden="true"></div>
-    <button id="sheet-fechar" class="fechar" type="button" aria-label="Fechar">✕</button>
-    <button id="sheet-fav" class="fechar fav" type="button" aria-label="Marcar como favorito" aria-pressed="false">☆</button>
+    <div class="sheet-topo">
+      <div class="grip" aria-hidden="true"></div>
+      <button id="sheet-fav" class="fechar fav" type="button" aria-label="Marcar como favorito" aria-pressed="false">☆</button>
+      <button id="sheet-fechar" class="fechar" type="button" aria-label="Fechar">✕</button>
+    </div>
     <div id="sheet-body"></div>
   </aside>
   <div id="toast" class="toast" role="status" hidden></div>
 </div>
 
-<script src="config.js?v=6"></script>
+<script src="config.js?v=7"></script>
 <script src="vendor/leaflet/leaflet.js"></script>
-<script src="calc.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="calc.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

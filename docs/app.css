@@ -151,10 +151,13 @@ main { padding: 0 16px calc(var(--tab-h) + var(--safe-b) + 18px); max-width: 640
 
 /* folha de detalhe */
 .sheet-bg { position: fixed; inset: 0; z-index: 950; background: rgba(8,16,14,.35); }
-.sheet { position: fixed; z-index: 960; left: 0; right: 0; bottom: 0; max-height: 86vh; overflow-y: auto; background: var(--surface);
-  border-radius: 20px 20px 0 0; padding: 8px 18px calc(22px + var(--safe-b)); box-shadow: 0 -10px 30px rgba(0,0,0,.18);
+.sheet { position: fixed; z-index: 960; left: 0; right: 0; bottom: 0; max-height: 80vh; max-height: calc(100dvh - 24px - var(--safe-t)); overflow-y: auto; background: var(--surface);
+  border-radius: 20px 20px 0 0; padding: 0 18px calc(22px + var(--safe-b)); box-shadow: 0 -10px 30px rgba(0,0,0,.18);
   max-width: 640px; margin: 0 auto; overscroll-behavior: contain; }
-.fechar { position: sticky; top: 0; float: right; margin: -4px -6px 0 8px; width: 36px; height: 36px; border-radius: 50%;
+.sheet-topo { position: sticky; top: 0; z-index: 3; display: flex; justify-content: flex-end; align-items: center; gap: 8px;
+  margin: 0 -18px 4px; padding: 8px 12px 6px; background: var(--surface); border-radius: 20px 20px 0 0; }
+.sheet-topo .grip { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); margin: 0; }
+.fechar { flex: none; margin: 0; width: 36px; height: 36px; border-radius: 50%;
   border: 0; background: var(--surface-2); color: var(--muted); font-size: 15px; cursor: pointer; z-index: 2; }
 .grip { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 4px auto 12px; }
 .sheet h3 { margin: 0; font-size: 19px; letter-spacing: -.01em; }
@@ -215,7 +218,7 @@ main { padding: 0 16px calc(var(--tab-h) + var(--safe-b) + 18px); max-width: 640
 }
 
 /* favorito na folha do posto */
-.fechar.fav { font-size: 19px; line-height: 1; margin-right: 6px; }
+.fechar.fav { font-size: 19px; line-height: 1; }
 .fechar.fav[aria-pressed="true"] { color: #e0a100; background: color-mix(in srgb, #e0a100 16%, transparent); }
 
 /* calculadora dentro da folha do posto */

@@ -236,13 +236,15 @@
     postoAberto = id;
     $("#sheet-body").innerHTML = `<p class="nota">A carregar…</p>`;
     $("#sheet-fav").hidden = true;
-    $("#sheet").hidden = false; $("#sheet-bg").hidden = false;
+    if (!(history.state && history.state.folha)) { try { history.pushState({ folha: 1 }, ""); } catch (_) {} }
+    $("#sheet").hidden = false; $("#sheet-bg").hidden = false; $("#sheet").scrollTop = 0;
     try {
       const p = await rpc("voltpt_posto", { p_posto: id });
       if (postoAberto !== id || !p) return;
       desenharPosto(p);
     } catch (e) { $("#sheet-body").innerHTML = `<p class="erro">${esc(e.message)}</p>`; }
   }
+  // o gesto/botão "voltar" do telemóvel também fecha a folha (popstate), em vez de sair da página
   function fecharPosto() { $("#sheet").hidden = true; $("#sheet-bg").hidden = true; postoAberto = null; tarifaPosto = null; }
   function desenharPosto(p) {
     const cls = estadoClasse(p.estado);
@@ -589,6 +591,7 @@
     $("#sheet-bg").addEventListener("click", fecharPosto);
     $("#sheet-fechar").addEventListener("click", fecharPosto);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharPosto(); });
+    window.addEventListener("popstate", () => { if (!$("#sheet").hidden) fecharPosto(); });
     document.addEventListener("click", (e) => {
       const card = e.target.closest("[data-posto]"); if (card) return abrirPosto(card.dataset.posto);
       const canc = e.target.closest("[data-cancelar]"); if (canc) return cancelarAviso(canc.dataset.cancelar);
